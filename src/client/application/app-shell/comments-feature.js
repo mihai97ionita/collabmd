@@ -20,6 +20,14 @@ export const commentsFeature = {
     return messageId;
   },
 
+  editCommentMessage(threadId, messageId, body) {
+    const didEdit = this.session?.editCommentMessage(threadId, messageId, body);
+    if (didEdit) {
+      this.scheduleCommentOverviewRefresh();
+    }
+    return didEdit;
+  },
+
   resolveCommentThread(threadId) {
     const didResolve = this.session?.deleteCommentThread(threadId);
     if (didResolve) {

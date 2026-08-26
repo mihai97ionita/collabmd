@@ -98,6 +98,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
     messages: [{
       body: 'Add the owner here',
       createdAt: 456,
+      editedAt: null,
       id: 'comment-diagram',
       peerId: '',
       reactions: [],

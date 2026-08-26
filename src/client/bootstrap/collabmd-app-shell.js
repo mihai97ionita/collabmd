@@ -1,6 +1,7 @@
 import { PdfPreviewController } from '../application/pdf-preview-controller.js';
 import { PreviewRenderer } from '../application/preview-renderer.js';
 import { ensureQuickSwitcherInstance, toggleQuickSwitcherInstance } from '../application/quick-switcher-loader.js';
+import { MermaidCommentAnchorDetector } from '../application/mermaid-comment-anchor.js';
 import { WorkspaceRouteController } from '../application/workspace-route-controller.js';
 import { WikiLinkFileController } from '../application/wiki-link-file-controller.js';
 import { WorkspacePreviewController } from '../application/workspace-preview-controller.js';
@@ -380,9 +381,15 @@ export class CollabMdAppShell {
         }
       },
       onReplyToThread: (threadId, body) => this.replyToCommentThread(threadId, body),
+      onEditMessage: (threadId, messageId, body) => this.editCommentMessage(threadId, messageId, body),
       onToggleReaction: (threadId, messageId, emoji) => this.session?.toggleCommentReaction(threadId, messageId, emoji),
       onResolveThread: (threadId) => this.resolveCommentThread(threadId),
     });
+    this.mermaidCommentAnchorDetector = new MermaidCommentAnchorDetector({
+      previewElement: this.elements.previewContent,
+      onAnchor: (anchor) => this.commentUi.openComposerForDiagramElement(anchor),
+    });
+    this.mermaidCommentAnchorDetector.attach();
     this.structurizrPreview = new StructurizrPreviewController({
       enabled: this.runtimeConfig.structurizrEnabled === true,
       syncWorkspace: (payload) => this.vaultApiClient.syncStructurizrWorkspace(payload),

@@ -106,3 +106,45 @@ test('toggleCommentReaction aggregates multiple users and removes empty groups',
   [thread] = serializeCommentThreads(commentThreads);
   assert.deepEqual(thread.messages[0].reactions, []);
 });
+
+test('resolveCommentThread returns a diagram-element thread without touching the editor doc', () => {
+  const doc = new Y.Doc();
+  const commentThreads = doc.getArray('comments');
+  const ytext = doc.getText('codemirror');
+  const localUserRef = {
+    current: { color: '#3b82f6', name: 'Tester', peerId: 'peer-1', userId: 'user-1' },
+  };
+  const fakeState = { doc: { line: () => { throw new Error('must not be called for diagram anchors'); } } };
+  const store = new CommentThreadStore({
+    getDoc: () => doc,
+    getEditorState: () => fakeState,
+    getLocalUser: () => localUserRef.current,
+  });
+  store.bind({ commentThreads, ydoc: doc, ytext });
+
+  commentThreads.push([createCommentThreadSharedType({
+    anchorKind: 'diagram-element',
+    anchorPoint: { x: 100, y: 50 },
+    anchorQuote: 'Validate auth token',
+    anchorSnapshot: { height: 40, text: 'Validate auth token', type: 'node', width: 120, x: 80, y: 30 },
+    elementId: 'A1',
+    id: 'thread-diag-1',
+    messages: [{ body: 'Diagram comment', id: 'comment-diag-1', userName: 'Tester' }],
+  })]);
+
+  const resolved = store.getCommentThreads();
+  assert.equal(resolved.length, 1);
+  assert.equal(resolved[0].anchorKind, 'diagram-element');
+  assert.equal(resolved[0].elementId, 'A1');
+  assert.equal(resolved[0].anchor.quote, 'Validate auth token');
+});
+
+test('editCommentMessage updates the body and records editedAt', () => {
+  const { commentThreads, store } = createStoreHarness();
+  seedThread(commentThreads);
+
+  assert.equal(store.editCommentMessage('thread-1', 'comment-1', 'Updated body'), true);
+  const [thread] = serializeCommentThreads(commentThreads);
+  assert.equal(thread.messages[0].body, 'Updated body');
+  assert.ok(Number.isFinite(thread.messages[0].editedAt), 'editedAt must be set');
+});

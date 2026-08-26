@@ -30,6 +30,29 @@ function ensureCardRoot() {
 }
 
 /** @this {any} */
+function openComposerForDiagramElement(anchor) {
+  if (!anchor || anchor.anchorKind !== 'diagram-element') {
+    return;
+  }
+
+  this.selectionAnchor = anchor;
+  this.reactionPicker = null;
+  const sourceRect = this.previewElement?.querySelector?.(
+    `[data-mermaid-element-id="${CSS.escape(anchor.elementId ?? '')}"]`,
+  )?.getBoundingClientRect?.() ?? null;
+  this.activeCard = {
+    anchor,
+    composerDraft: null,
+    mode: 'create',
+    origin: 'preview',
+    previewRange: null,
+    replyThreadId: null,
+    sourceRect,
+  };
+  this.render();
+}
+
+/** @this {any} */
 function openComposerForSelection(origin = 'editor', sourceRect = null, previewSelection = null) {
   const anchor = previewSelection?.anchor ?? this.session?.getCurrentSelectionCommentAnchor?.();
   if (!anchor) {
@@ -59,6 +82,8 @@ function openThreadGroup(group, { anchor, origin, sourceRect }) {
   this.reactionPicker = null;
   this.activeCard = {
     anchor,
+    editDrafts: {},
+    editingMessageByThread: {},
     groupKey: group.key,
     groupThreadIds: group.threads.map((thread) => thread.id),
     mode: 'group',
@@ -145,6 +170,15 @@ function captureActiveCardDraft() {
     this.activeCard.replyDrafts = {
       ...(this.activeCard.replyDrafts ?? {}),
       [this.activeCard.replyThreadId]: draft,
+    };
+  }
+
+  const editingThreadId = Object.keys(this.activeCard.editingMessageByThread ?? {})[0];
+  if (editingThreadId && this.activeCard.editingMessageByThread?.[editingThreadId]) {
+    const messageId = this.activeCard.editingMessageByThread[editingThreadId];
+    this.activeCard.editDrafts = {
+      ...(this.activeCard.editDrafts ?? {}),
+      [messageId]: draft,
     };
   }
 }
@@ -412,6 +446,14 @@ function createThreadElement(thread) {
     article.appendChild(this.createReplyComposer(thread));
   }
 
+  if (this.activeCard?.editingMessageByThread?.[thread.id]) {
+    const messageId = this.activeCard.editingMessageByThread[thread.id];
+    const message = thread.messages.find((entry) => entry.id === messageId);
+    if (message) {
+      article.appendChild(this.createEditComposer(thread, message));
+    }
+  }
+
   return article;
 }
 
@@ -432,15 +474,49 @@ function createMessageElement(thread, message, { actions = null, isThreadStart =
   time.className = 'comment-message-card-time';
   time.textContent = this.formatTimestamp(message.createdAt);
 
+  const messageActions = actions ?? document.createElement('div');
+  if (!actions) {
+    messageActions.className = 'ui-record-actions comment-thread-card-actions';
+  }
+  const isEditing = this.activeCard?.editingMessageByThread?.[thread.id] === message.id;
+  const editButton = document.createElement('button');
+  editButton.type = 'button';
+  editButton.className = buttonClassNames({
+    variant: 'ghost',
+    size: 'compact',
+    pill: true,
+    extra: ['ui-action-pill', 'comment-thread-card-action'],
+  });
+  editButton.classList.toggle('is-active', isEditing);
+  editButton.textContent = 'Edit';
+  editButton.setAttribute('aria-pressed', String(isEditing));
+  editButton.setAttribute('aria-label', isEditing ? 'Cancel edit' : 'Edit comment');
+  editButton.title = isEditing ? 'Cancel edit' : 'Edit comment';
+  editButton.addEventListener('click', () => {
+    const editingMessageByThread = { ...(this.activeCard?.editingMessageByThread ?? {}) };
+    if (isEditing) {
+      delete editingMessageByThread[thread.id];
+    } else {
+      editingMessageByThread[thread.id] = message.id;
+    }
+    this.activeCard = {
+      ...this.activeCard,
+      editingMessageByThread,
+      editDrafts: {
+        ...(this.activeCard?.editDrafts ?? {}),
+      },
+    };
+    this.renderCard();
+  });
+  messageActions.appendChild(editButton);
+
   const renderedBody = createRenderedCommentBody(
     message.body,
     'comment-message-card-body comment-markdown',
   );
 
   meta.append(author, time);
-  if (actions) {
-    meta.appendChild(actions);
-  }
+  meta.appendChild(messageActions);
   container.append(meta, renderedBody);
   container.appendChild(this.createReactionBar(thread, message));
   return container;
@@ -629,6 +705,72 @@ function createReplyComposer(thread) {
 }
 
 /** @this {any} */
+function createEditComposer(thread, message) {
+  const form = document.createElement('form');
+  form.className = 'comment-edit-form';
+  const draft = this.activeCard?.editDrafts?.[message.id] ?? null;
+
+  const textarea = document.createElement('textarea');
+  textarea.className = inputClassNames({ extra: 'comment-card-input' });
+  textarea.rows = 3;
+  textarea.maxLength = COMMENT_BODY_MAX_LENGTH;
+  textarea.setAttribute('aria-label', 'Edit comment');
+  textarea.placeholder = 'Edit comment…';
+  textarea.value = draft?.value ?? message.body;
+
+  const actions = document.createElement('div');
+  actions.className = 'ui-record-actions comment-card-actions';
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = buttonClassNames({ variant: 'secondary' });
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => {
+    if (this.activeCard?.editDrafts?.[message.id]) {
+      delete this.activeCard.editDrafts[message.id];
+    }
+    const editingMessageByThread = { ...(this.activeCard?.editingMessageByThread ?? {}) };
+    delete editingMessageByThread[thread.id];
+    this.activeCard = {
+      ...this.activeCard,
+      editingMessageByThread,
+    };
+    this.renderCard();
+  });
+
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = buttonClassNames({ variant: 'primary' });
+  submit.textContent = 'Save';
+
+  actions.append(cancel, submit);
+  form.append(textarea, actions);
+  this.pendingCardFocusElement = createPendingFocusTarget(textarea, draft);
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const didEdit = await this.onEditMessage?.(thread.id, message.id, textarea.value);
+    if (!didEdit) {
+      textarea.focus();
+      return;
+    }
+
+    if (this.activeCard?.editDrafts?.[message.id]) {
+      delete this.activeCard.editDrafts[message.id];
+    }
+    const editingMessageByThread = { ...(this.activeCard?.editingMessageByThread ?? {}) };
+    delete editingMessageByThread[thread.id];
+    this.activeCard = {
+      ...this.activeCard,
+      editingMessageByThread,
+    };
+    this.renderCard();
+  });
+
+  return form;
+}
+
+/** @this {any} */
 function positionCard(card) {
   const sourceRect = this.updateCardSourceRect();
   const viewportWidth = window.innerWidth;
@@ -710,6 +852,7 @@ export const commentUiCardMethods = {
   captureActiveCardDraft,
   closeCard,
   createComposer,
+  createEditComposer,
   createPendingFocusTarget,
   createMessageElement,
   createQuickReactionButton,
@@ -722,6 +865,7 @@ export const commentUiCardMethods = {
   ensureCardRoot,
   flushPendingCardFocus,
   openComposerForSelection,
+  openComposerForDiagramElement,
   openThreadGroup,
   positionCard,
   renderCard,

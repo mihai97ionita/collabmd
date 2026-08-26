@@ -274,6 +274,8 @@ export class DiagramChrome {
     const decreaseButton = this.createButton(kind, '−', 'Zoom out');
     const increaseButton = this.createButton(kind, '+', 'Zoom in');
     const resetButton = this.createButton(kind, '', 'Reset zoom', { icon: 'fit' });
+    const commentToggleButton = this.createButton(kind, '', 'Comment on diagram', { icon: 'comment' });
+    commentToggleButton.classList.add('diagram-comment-toggle');
     const copyButton = this.createButton(kind, '', 'Copy image', { icon: 'copy' });
     const downloadButton = this.createButton(kind, '', 'Download SVG', { icon: 'download' });
     const reloadButton = includeReload
@@ -285,7 +287,7 @@ export class DiagramChrome {
     zoomLabel.className = config.zoomLabelClassName;
     zoomLabel.setAttribute('aria-live', 'polite');
 
-    leftGroup.append(decreaseButton, zoomLabel, resetButton, increaseButton);
+    leftGroup.append(decreaseButton, zoomLabel, resetButton, increaseButton, commentToggleButton);
     rightGroup.append(copyButton, downloadButton);
     if (reloadButton) {
       rightGroup.append(reloadButton);
@@ -294,6 +296,7 @@ export class DiagramChrome {
     toolbar.append(leftGroup, rightGroup);
 
     return {
+      commentToggleButton,
       copyButton,
       decreaseButton,
       downloadButton,
@@ -405,6 +408,7 @@ export class DiagramChrome {
     const previousViewState = this.getShellViewState(shell);
     this.destroyShell(shell);
     const {
+      commentToggleButton,
       copyButton,
       decreaseButton,
       downloadButton,
@@ -459,6 +463,11 @@ export class DiagramChrome {
     let resetZoomFrameId = null;
     let replacementFrameId = null;
     let pinchState = null;
+    let commentMode = false;
+    const commentHintBanner = this.document.createElement('div');
+    commentHintBanner.className = 'diagram-comment-hint';
+    commentHintBanner.textContent = 'Comment mode: click a node or edge to comment. Press Esc to exit.';
+    commentHintBanner.hidden = true;
     let hasManualZoom = Boolean(
       previousViewState?.hasManualZoom
       || previousViewState?.scrollLeft > 0
@@ -493,7 +502,7 @@ export class DiagramChrome {
       zoomLabel.textContent = `${Math.round(currentZoom * 100)}%`;
       decreaseButton.disabled = currentZoom <= zoomPolicy.min;
       increaseButton.disabled = currentZoom >= zoomPolicy.max;
-
+      updateFrameCursor();
     };
 
     const initialZoom = hasRestorableViewState
@@ -686,6 +695,26 @@ export class DiagramChrome {
 
     decreaseButton.addEventListener('click', () => zoomBy(-zoomPolicy.step));
     increaseButton.addEventListener('click', () => zoomBy(zoomPolicy.step));
+
+    let dragState = null;
+    let pendingDrag = null;
+    const DRAG_MOVE_THRESHOLD_PX = 4;
+    const isPannable = () => frame.scrollWidth > frame.clientWidth + 1
+      || frame.scrollHeight > frame.clientHeight + 1;
+    const updateFrameCursor = () => {
+      if (commentMode) {
+        frame.classList.remove('is-grabbable');
+        frame.classList.remove('is-grabbing');
+        frame.classList.add('is-comment-mode');
+        return;
+      }
+      frame.classList.remove('is-comment-mode');
+      if (dragState) {
+        frame.classList.add('is-grabbing');
+        return;
+      }
+      frame.classList.toggle('is-grabbable', isPannable());
+    };
     frame.addEventListener('wheel', (event) => {
       if (!event.ctrlKey) {
         return;
@@ -702,6 +731,88 @@ export class DiagramChrome {
         zoomBy(wheelDelta);
       }
     }, { passive: false });
+    const setCommentMode = (next) => {
+      commentMode = Boolean(next);
+      shell.dataset.diagramCommentMode = commentMode ? 'true' : 'false';
+      commentToggleButton.classList.toggle('is-active', commentMode);
+      commentToggleButton.setAttribute('aria-pressed', String(commentMode));
+      commentHintBanner.hidden = !commentMode;
+      frame.classList.toggle('is-comment-mode', commentMode);
+      updateFrameCursor();
+    };
+
+    commentToggleButton.addEventListener('click', () => {
+      setCommentMode(!commentMode);
+    });
+
+    const handleCommentModeEscape = (event) => {
+      if (event.key === 'Escape' && commentMode) {
+        setCommentMode(false);
+      }
+    };
+    this.document.addEventListener('keydown', handleCommentModeEscape);
+
+    frame.addEventListener('pointerdown', (event) => {
+      if (commentMode) {
+        return;
+      }
+      if (event.button !== 0 || event.target.closest('button, a, input, textarea, select')) {
+        return;
+      }
+      if (!isPannable()) {
+        return;
+      }
+
+      pendingDrag = {
+        pointerId: event.pointerId,
+        scrollLeft: frame.scrollLeft,
+        scrollTop: frame.scrollTop,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+      };
+    });
+    frame.addEventListener('pointermove', (event) => {
+      if (pendingDrag && event.pointerId === pendingDrag.pointerId) {
+        const deltaX = pendingDrag.startX - event.clientX;
+        const deltaY = pendingDrag.startY - event.clientY;
+        if (!pendingDrag.moved) {
+          if (Math.abs(deltaX) < DRAG_MOVE_THRESHOLD_PX && Math.abs(deltaY) < DRAG_MOVE_THRESHOLD_PX) {
+            return;
+          }
+          pendingDrag.moved = true;
+          dragState = pendingDrag;
+          frame.setPointerCapture?.(pendingDrag.pointerId);
+          updateFrameCursor();
+        }
+
+        frame.scrollLeft = pendingDrag.scrollLeft + deltaX;
+        frame.scrollTop = pendingDrag.scrollTop + deltaY;
+        return;
+      }
+
+      if (!dragState || event.pointerId !== dragState.pointerId) {
+        return;
+      }
+
+      const deltaX = dragState.startX - event.clientX;
+      const deltaY = dragState.startY - event.clientY;
+      frame.scrollLeft = dragState.scrollLeft + deltaX;
+      frame.scrollTop = dragState.scrollTop + deltaY;
+    });
+    const endDrag = (event) => {
+      if (dragState && event.pointerId === dragState.pointerId) {
+        frame.releasePointerCapture?.(dragState.pointerId);
+        dragState = null;
+        updateFrameCursor();
+      }
+      if (pendingDrag && event.pointerId === pendingDrag.pointerId) {
+        pendingDrag = null;
+      }
+    };
+    frame.addEventListener('pointerup', endDrag);
+    frame.addEventListener('pointercancel', endDrag);
+    frame.addEventListener('pointerleave', endDrag);
     frame.addEventListener('touchstart', (event) => {
       if (event.touches.length === 2) {
         startPinch(event.touches);
@@ -737,7 +848,9 @@ export class DiagramChrome {
 
     frame.appendChild(diagramElement);
     const sourceNode = sourceSelector ? shell.querySelector(sourceSelector) : null;
-    const nextChildren = sourceNode ? [sourceNode, toolbar, frame] : [toolbar, frame];
+    const nextChildren = sourceNode
+      ? [sourceNode, toolbar, commentHintBanner, frame]
+      : [toolbar, commentHintBanner, frame];
     if (sourceNode) {
       sourceNode.hidden = true;
     }
@@ -799,6 +912,8 @@ export class DiagramChrome {
         }
         resizeObserver?.disconnect?.();
         this.resizeObservers.delete(resizeObserver);
+        this.document.removeEventListener('keydown', handleCommentModeEscape);
+        setCommentMode(false);
       },
       getViewState: () => ({
         hasManualZoom,

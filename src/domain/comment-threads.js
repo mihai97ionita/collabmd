@@ -201,14 +201,31 @@ function createMessageRecord(message) {
     return null;
   }
 
+  const editedAt = asFiniteNumber(readRecordValue(message, 'editedAt'));
+
   return {
     body,
     createdAt: asFiniteNumber(readRecordValue(message, 'createdAt')) ?? Date.now(),
+    editedAt: editedAt ?? null,
     id: asString(readRecordValue(message, 'id')) || createCommentId('comment'),
     peerId: asString(readRecordValue(message, 'peerId')),
     reactions: serializeCommentReactions(readRecordValue(message, 'reactions')),
     userColor: asString(readRecordValue(message, 'userColor')),
     userName: asString(readRecordValue(message, 'userName')) || 'Anonymous',
+  };
+}
+
+export function editMessageRecord(message, body) {
+  const normalizedBody = normalizeCommentBody(body);
+  if (!normalizedBody) {
+    return null;
+  }
+
+  const base = message instanceof Y.Map ? message.toJSON() : { ...message };
+  return {
+    ...createMessageRecord(base),
+    body: normalizedBody,
+    editedAt: Date.now(),
   };
 }
 

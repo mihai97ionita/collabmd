@@ -3,6 +3,7 @@ import { createGitApiCommandHandler } from './create-git-api-command-handler.js'
 import { createGitApiQueryHandler } from './create-git-api-query-handler.js';
 import { createHostedApiHandler } from './create-hosted-api-handler.js';
 import { createPlantUmlApiHandler } from './create-plantuml-api-handler.js';
+import { createReviewApiHandler } from './create-review-api-handler.js';
 import { createStaticHandler } from './create-static-handler.js';
 import { createStructurizrApiHandler } from './create-structurizr-api-handler.js';
 import { createVaultApiCommandHandler } from './create-vault-api-command-handler.js';
@@ -38,6 +39,7 @@ export function createRequestHandler(
   hostedWorkspaceService = null,
   githubSetupFlow = null,
   structurizrWorkspaceService = null,
+  reviewStore = null,
 ) {
   const handleStaticRequest = createStaticHandler(config, authService, searchService);
   const handleAuthApi = createAuthApiHandler({ authService });
@@ -72,6 +74,11 @@ export function createRequestHandler(
   const handleStructurizrApi = createStructurizrApiHandler({
     basePath: config.basePath,
     service: structurizrWorkspaceService,
+  });
+  const handleReviewApi = createReviewApiHandler({
+    basePath: config.basePath,
+    reviewStore,
+    vaultFileStore,
   });
 
   function handleBasePathRedirect(req, res, originalRequestUrl) {
@@ -203,6 +210,9 @@ export function createRequestHandler(
     }
 
     if (requestUrl.pathname.startsWith('/api/')) {
+      if (await handleReviewApi(req, res, requestUrl)) {
+        return;
+      }
       if (await handleVaultApiQuery(req, res, requestUrl)) {
         return;
       }
