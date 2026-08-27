@@ -47,6 +47,9 @@ export class PreviewRenderer {
     this.isLargeDocument = false;
     this.hydrationPaused = false;
     this.frontmatterCollapsed = false;
+    this.previewRevealGeneration = 0;
+    this.previewRevealTimer = null;
+    this.previewRevealCancel = null;
 
     this.handlePreviewClick = (event) => {
       const frontmatterToggle = event.target.closest('.frontmatter-toggle');
@@ -203,6 +206,191 @@ export class PreviewRenderer {
       highlightTheme.href = theme === 'dark' ? darkHref : lightHref;
     }
     this.mermaidHydrator.applyTheme(theme);
+  }
+
+  clearPreviewReveal() {
+    this.previewRevealGeneration += 1;
+    if (this.previewRevealTimer !== null) {
+      clearTimeout(this.previewRevealTimer);
+      this.previewRevealTimer = null;
+    }
+    this.previewRevealCancel?.(false);
+    this.previewRevealCancel = null;
+    if (!this.previewElement) {
+      return;
+    }
+    this.previewElement.querySelectorAll('.preview-comment-reveal').forEach((el) => {
+      el.classList.remove('preview-comment-reveal');
+    });
+  }
+
+  scrollIntoPreviewContainer(element, gap = 40) {
+    if (!this.previewContainer || !element) {
+      return;
+    }
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = this.previewContainer.getBoundingClientRect();
+    const offsetTop = elementRect.top - containerRect.top;
+    const offsetBottom = elementRect.bottom - containerRect.bottom;
+    const elementHeight = elementRect.height;
+    const containerHeight = this.previewContainer.clientHeight;
+
+    if (elementHeight > containerHeight * 0.8) {
+      if (offsetTop < 0 || offsetBottom > 0) {
+        const delta = offsetTop < 0 ? offsetTop - gap : offsetBottom + gap;
+        this.previewContainer.scrollBy({ top: delta, behavior: 'smooth' });
+      }
+      return;
+    }
+
+    const centerDelta = (elementRect.top + elementHeight / 2) - (containerRect.top + containerHeight / 2);
+    if (Math.abs(centerDelta) > 10) {
+      this.previewContainer.scrollBy({ top: centerDelta, behavior: 'smooth' });
+    }
+  }
+
+  revealPreviewAnchor(anchor) {
+    if (!this.previewElement) {
+      return false;
+    }
+
+    const kind = anchor?.anchorKind || anchor?.kind || 'line';
+    if (kind === 'diagram-element') {
+      return this.revealDiagramElement(anchor);
+    }
+
+    const startLine = Math.round(Number(anchor?.startLine ?? anchor?.anchorStartLine ?? 1));
+    if (!Number.isFinite(startLine)) {
+      return false;
+    }
+
+    this.clearPreviewReveal();
+
+    const blocks = Array.from(this.previewElement.querySelectorAll('[data-source-line]'));
+    let target = null;
+    for (const block of blocks) {
+      const blockStart = Number.parseInt(block.getAttribute('data-source-line') || '', 10);
+      const blockEnd = Number.parseInt(block.getAttribute('data-source-line-end') || '', 10) || blockStart;
+      if (!Number.isFinite(blockStart)) {
+        continue;
+      }
+      if (blockStart <= startLine && blockEnd >= startLine) {
+        target = block;
+        break;
+      }
+    }
+
+    if (!target) {
+      return false;
+    }
+
+    target.classList.add('preview-comment-reveal');
+    this.scrollIntoPreviewContainer(target);
+    return true;
+  }
+
+  revealDiagramElement(anchorOrElementId, attempts = 0, revealGeneration = null) {
+    if (!this.previewElement) {
+      return false;
+    }
+
+    if (revealGeneration === null) {
+      this.clearPreviewReveal();
+      revealGeneration = this.previewRevealGeneration;
+    } else if (revealGeneration !== this.previewRevealGeneration) {
+      return false;
+    }
+
+    const anchor = typeof anchorOrElementId === 'string'
+      ? { elementId: anchorOrElementId }
+      : anchorOrElementId;
+    const elementId = anchor?.elementId;
+    if (!elementId) {
+      return false;
+    }
+
+    const escapedId = typeof CSS !== 'undefined' && CSS.escape
+      ? CSS.escape(String(elementId))
+      : String(elementId).replace(/["\\]/g, '\\$&');
+
+    // Element not found — diagram may be below the fold and not yet hydrated.
+    // Layer 1: scroll the diagram's shell into the preview container so the
+    // IntersectionObserver fires and Mermaid hydrates it. If the anchor
+    // carries a source line, find the shell by data-source-line (precise).
+    // Otherwise fall back to progressively scrolling unhydrated shells.
+    const shells = Array.from(
+      this.previewElement.querySelectorAll('.mermaid-shell, .plantuml-shell'),
+    );
+    const diagramKey = String(anchor?.diagramKey ?? '').trim();
+    const shellByKey = diagramKey
+      ? shells.find((shell) => (
+        shell.getAttribute('data-mermaid-key') === diagramKey
+        || shell.getAttribute('data-plantuml-key') === diagramKey
+      ))
+      : null;
+    const startLine = Math.round(Number(anchor?.anchorStartLine));
+    const shellByLine = !diagramKey && Number.isFinite(startLine) && startLine > 0
+      ? shells.find((shell) => {
+        const shellStart = Number.parseInt(shell.getAttribute('data-source-line') || '', 10);
+        return Number.isFinite(shellStart) && shellStart === startLine;
+      })
+      : null;
+    const scopedShell = shellByKey ?? shellByLine;
+    const mermaidNode = (diagramKey ? shellByKey : scopedShell ?? this.previewElement)?.querySelector?.(
+      `[data-mermaid-element-id="${escapedId}"]`,
+    );
+
+    if (mermaidNode) {
+      mermaidNode.classList.add('preview-comment-reveal');
+      const shell = mermaidNode.closest('.mermaid-shell, .plantuml-shell');
+      if (shell) {
+        this.scrollIntoPreviewContainer(shell);
+      }
+      return true;
+    }
+
+    if (attempts < 12) {
+      if (scopedShell) {
+        // Precise path: scroll the exact shell into view on every retry until
+        // hydration completes and the tagged element appears.
+        this.scrollIntoPreviewContainer(scopedShell);
+      } else {
+        // Legacy path: scroll the next unhydrated shell into view.
+        const unhydratedShells = shells.filter((shell) => !this.isShellHydrated(shell));
+        const shellToReveal = unhydratedShells[attempts] ?? unhydratedShells[0];
+        if (shellToReveal) {
+          this.scrollIntoPreviewContainer(shellToReveal);
+        }
+      }
+      return new Promise((resolve) => {
+        this.previewRevealCancel = resolve;
+        this.previewRevealTimer = setTimeout(() => {
+          this.previewRevealTimer = null;
+          this.previewRevealCancel = null;
+          if (revealGeneration !== this.previewRevealGeneration) {
+            resolve(false);
+            return;
+          }
+          resolve(this.revealDiagramElement(anchorOrElementId, attempts + 1, revealGeneration));
+        }, 200);
+      });
+    }
+
+    // Exhausted retries — fall back to highlighting the shell we found.
+    const fallbackShell = shellByLine ?? shells[0];
+    if (fallbackShell) {
+      this.scrollIntoPreviewContainer(fallbackShell);
+      fallbackShell.classList.add('preview-comment-reveal');
+      return true;
+    }
+
+    return false;
+  }
+
+  isShellHydrated(shell) {
+    return shell?.dataset?.mermaidHydrated === 'true'
+      || shell?.dataset?.plantumlHydrated === 'true'
+      || shell?.getAttribute?.('data-diagram-output') === 'true';
   }
 
   queueRender() {

@@ -1,6 +1,7 @@
 services:
   collabmd:
-    image: ${COLLABMD_IMAGE:-ghcr.io/andes90/collabmd:latest}
+    build: .
+    image: ${COLLABMD_IMAGE:-collabmd:local}
     depends_on:
       - plantuml
       - structurizr
@@ -12,7 +13,7 @@ services:
       AUTH_SESSION_COOKIE_NAME: ${AUTH_SESSION_COOKIE_NAME:-collabmd_auth}
       AUTH_SESSION_SECRET: ${AUTH_SESSION_SECRET:-}
       AUTH_SESSION_MAX_AGE_MS: ${AUTH_SESSION_MAX_AGE_MS:-}
-      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:1234}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:1317}
       AUTH_OIDC_CLIENT_ID: ${AUTH_OIDC_CLIENT_ID:-}
       AUTH_OIDC_CLIENT_SECRET: ${AUTH_OIDC_CLIENT_SECRET:-}
       AUTH_OIDC_ALLOWED_EMAILS: ${AUTH_OIDC_ALLOWED_EMAILS:-}
@@ -39,15 +40,13 @@ services:
       retries: 3
       start_period: 45s
     ports:
-      - "${COLLABMD_HOST_PORT:-1234}:1234"
+      - "${COLLABMD_HOST_PORT:-1317}:1234"
     restart: unless-stopped
     networks:
       - default
       - diagram-private
     volumes:
-      - type: bind
-        source: ${HOST_VAULT_DIR:-./data/vault}
-        target: ${COLLABMD_VAULT_DIR:-/data}
+      - collabmd-vault:${COLLABMD_VAULT_DIR:-/data}
       # Optional: mount secret files when using file-based SSH auth.
       # - type: bind
       #   source: ${HOST_SSH_KEY_FILE}
@@ -57,6 +56,24 @@ services:
       #   source: ${HOST_KNOWN_HOSTS_FILE}
       #   target: /run/secrets/collabmd_known_hosts
       #   read_only: true
+
+  collabmd-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    image: ${COLLABMD_MCP_IMAGE:-collabmd-mcp:local}
+    depends_on:
+      - collabmd
+    environment:
+      COLLABMD_URL: http://collabmd:1234
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8000
+    ports:
+      - "${COLLABMD_MCP_HOST_PORT:-8098}:8000"
+    restart: unless-stopped
+    networks:
+      - default
 
   plantuml:
     image: plantuml/plantuml-server:jetty
@@ -68,7 +85,8 @@ services:
 
   structurizr:
     image: structurizr/structurizr:2026.06.28
-    command: ["local", "/data"]
+    user: "0:0"
+    command: ["local", "${COLLABMD_VAULT_DIR:-/data}/.collabmd/structurizr"]
     environment:
       STRUCTURIZR_EDITABLE: "false"
       STRUCTURIZR_AUTOREFRESHINTERVAL: "0"
@@ -83,17 +101,19 @@ services:
     cpus: 1.0
     mem_limit: 768m
     pids_limit: 256
-    read_only: true
     restart: unless-stopped
     ports:
       - "127.0.0.1:${STRUCTURIZR_HOST_PORT:-19090}:8080"
     tmpfs:
       - /tmp
     volumes:
-      - type: bind
-        source: ${HOST_VAULT_DIR:-./data/vault}/.collabmd/structurizr
-        target: /data
+      - collabmd-vault:${COLLABMD_VAULT_DIR:-/data}
+
+volumes:
+  collabmd-vault:
+    name: collabmd-vault
 
 networks:
   diagram-private:
     driver: bridge
+

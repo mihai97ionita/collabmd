@@ -60,6 +60,11 @@ function normalizeDiagramElementId(value) {
   return normalized || null;
 }
 
+function normalizeDiagramKey(value) {
+  const normalized = asString(value).trim().slice(0, 240);
+  return normalized || null;
+}
+
 function normalizeDiagramAnchorPoint(value) {
   const point = asObject(value);
   const x = asFiniteNumber(point?.x);
@@ -201,14 +206,31 @@ function createMessageRecord(message) {
     return null;
   }
 
+  const editedAt = asFiniteNumber(readRecordValue(message, 'editedAt'));
+
   return {
     body,
     createdAt: asFiniteNumber(readRecordValue(message, 'createdAt')) ?? Date.now(),
+    editedAt: editedAt ?? null,
     id: asString(readRecordValue(message, 'id')) || createCommentId('comment'),
     peerId: asString(readRecordValue(message, 'peerId')),
     reactions: serializeCommentReactions(readRecordValue(message, 'reactions')),
     userColor: asString(readRecordValue(message, 'userColor')),
     userName: asString(readRecordValue(message, 'userName')) || 'Anonymous',
+  };
+}
+
+export function editMessageRecord(message, body) {
+  const normalizedBody = normalizeCommentBody(body);
+  if (!normalizedBody) {
+    return null;
+  }
+
+  const base = message instanceof Y.Map ? message.toJSON() : { ...message };
+  return {
+    ...createMessageRecord(base),
+    body: normalizedBody,
+    editedAt: Date.now(),
   };
 }
 
@@ -231,16 +253,20 @@ export function normalizeCommentAnchor(record = {}) {
   if (anchorKind === 'diagram-element') {
     const anchorPoint = normalizeDiagramAnchorPoint(record.anchorPoint);
     const anchorSnapshot = normalizeDiagramAnchorSnapshot(record.anchorSnapshot);
+    const diagramKey = normalizeDiagramKey(record.diagramKey);
     const elementId = normalizeDiagramElementId(record.elementId);
     if (!anchorPoint || !anchorSnapshot || !elementId) {
       return null;
     }
 
     return {
+      anchorEndLine: asFiniteNumber(record.anchorEndLine),
       anchorKind,
       anchorPoint,
       anchorQuote: normalizeCommentQuote(record.anchorQuote || anchorSnapshot.text),
       anchorSnapshot,
+      anchorStartLine: asFiniteNumber(record.anchorStartLine),
+      ...(diagramKey ? { diagramKey } : {}),
       elementId,
     };
   }
@@ -290,6 +316,15 @@ export function createCommentThreadSharedType(record = {}) {
     thread.set('anchorPoint', anchor.anchorPoint);
     thread.set('anchorSnapshot', anchor.anchorSnapshot);
     thread.set('elementId', anchor.elementId);
+    if (anchor.anchorStartLine != null) {
+      thread.set('anchorStartLine', anchor.anchorStartLine);
+    }
+    if (anchor.anchorEndLine != null) {
+      thread.set('anchorEndLine', anchor.anchorEndLine);
+    }
+    if (anchor.diagramKey) {
+      thread.set('diagramKey', anchor.diagramKey);
+    }
   } else {
     thread.set('anchorEnd', anchor.anchorEnd);
     thread.set('anchorEndLine', anchor.anchorEndLine);
@@ -309,8 +344,8 @@ export function createCommentThreadSharedType(record = {}) {
   return thread;
 }
 
-export function serializeCommentThread(thread) {
-  if (isResolvedThread(thread)) {
+export function serializeCommentThread(thread, { includeResolved = false } = {}) {
+  if (!includeResolved && isResolvedThread(thread)) {
     return null;
   }
 
@@ -323,6 +358,7 @@ export function serializeCommentThread(thread) {
     anchorStartLine: readThreadValue(thread, 'anchorStartLine'),
     anchorPoint: readThreadValue(thread, 'anchorPoint'),
     anchorSnapshot: readThreadValue(thread, 'anchorSnapshot'),
+    diagramKey: readThreadValue(thread, 'diagramKey'),
     elementId: readThreadValue(thread, 'elementId'),
   });
   const messages = serializeMessages(readThreadValue(thread, 'messages'));
@@ -346,7 +382,7 @@ export function serializeCommentThread(thread) {
   };
 }
 
-export function serializeCommentThreads(source) {
+export function serializeCommentThreads(source, { includeResolved = false } = {}) {
   const items = source instanceof Y.Array
     ? source.toArray()
     : Array.isArray(source)
@@ -354,7 +390,7 @@ export function serializeCommentThreads(source) {
       : [];
 
   return items
-    .map((thread) => serializeCommentThread(thread))
+    .map((thread) => serializeCommentThread(thread, { includeResolved }))
     .filter(Boolean);
 }
 

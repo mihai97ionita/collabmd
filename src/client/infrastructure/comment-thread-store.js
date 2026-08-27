@@ -3,6 +3,7 @@ import * as Y from 'yjs';
 import {
   createCommentId,
   createCommentThreadSharedType,
+  editMessageRecord,
   normalizeCommentAnchor,
   normalizeCommentBody,
   normalizeCommentQuote,
@@ -152,7 +153,7 @@ export class CommentThreadStore {
     return serializeCommentThreads(this.commentThreads)
       .map((thread) => this.resolveThread
         ? this.resolveThread(thread)
-        : this.resolveCommentThread(thread))
+        : this.resolveThreadForUi(thread))
       .filter(Boolean);
   }
 
@@ -167,23 +168,35 @@ export class CommentThreadStore {
       return null;
     }
 
-    const normalizedAnchor = this.createAnchor
-      ? this.createAnchor(anchor)
-      : normalizeSelectionAnchorPayload(anchor, state);
+    let usedCreateAnchor = false;
+    let normalizedAnchor = null;
+    if (this.createAnchor) {
+      const created = this.createAnchor(anchor);
+      if (created) {
+        normalizedAnchor = created;
+        usedCreateAnchor = true;
+      }
+    }
+    if (!normalizedAnchor) {
+      if (!state || !this.ytext) {
+        return null;
+      }
+      normalizedAnchor = normalizeSelectionAnchorPayload(anchor, state);
+    }
     if (!normalizedBody || !normalizedAnchor) {
       return null;
     }
 
     const thread = createCommentThreadSharedType({
       ...normalizedAnchor,
-      ...(this.createAnchor ? {} : {
+      ...(usedCreateAnchor ? {} : {
         anchorEnd: Y.relativePositionToJSON(
           Y.createRelativePositionFromTypeIndex(this.ytext, normalizedAnchor.endIndex),
         ),
       }),
       anchorKind: normalizedAnchor.anchorKind,
       anchorQuote: normalizedAnchor.anchorQuote,
-      ...(this.createAnchor ? {} : {
+      ...(usedCreateAnchor ? {} : {
         anchorStart: Y.relativePositionToJSON(
           Y.createRelativePositionFromTypeIndex(this.ytext, normalizedAnchor.startIndex),
         ),
@@ -311,6 +324,65 @@ export class CommentThreadStore {
     return true;
   }
 
+  editCommentMessage(threadId, messageId, body) {
+    if (!this.ydoc || !threadId || !messageId) {
+      return false;
+    }
+
+    const normalizedBody = normalizeCommentBody(body);
+    if (!normalizedBody) {
+      return false;
+    }
+
+    const thread = this.findSharedCommentThread(threadId);
+    const messages = thread?.get('messages');
+    if (!(messages instanceof Y.Array)) {
+      return false;
+    }
+
+    const items = messages.toArray();
+    const messageIndex = items.findIndex((message) => readRecordValue(message, 'id') === messageId);
+    if (messageIndex < 0) {
+      return false;
+    }
+
+    const existingRecord = items[messageIndex] instanceof Y.Map
+      ? items[messageIndex].toJSON()
+      : { ...items[messageIndex] };
+    const nextMessage = editMessageRecord(existingRecord, normalizedBody);
+    if (!nextMessage) {
+      return false;
+    }
+
+    this.ydoc.transact(() => {
+      messages.delete(messageIndex, 1);
+      messages.insert(messageIndex, [nextMessage]);
+    }, 'comment-message-edit');
+
+    return true;
+  }
+
+  resolveCommentThread(threadId) {
+    if (!this.canWrite() || !this.commentThreads || !this.ydoc) {
+      return false;
+    }
+
+    const thread = this.findSharedCommentThread(threadId);
+    if (!thread) {
+      return false;
+    }
+
+    const user = this.getLocalUser();
+    this.ydoc.transact(() => {
+      thread.set('resolvedAt', Date.now());
+      thread.set('resolvedByColor', user?.color ?? '');
+      thread.set('resolvedByName', user?.name ?? 'Anonymous');
+      thread.set('resolvedByPeerId', user?.peerId ?? '');
+    }, 'comment-thread-resolve');
+
+    return true;
+  }
+
   deleteCommentThread(threadId) {
     if (!this.canWrite() || !this.commentThreads || !this.ydoc) {
       return false;
@@ -323,7 +395,7 @@ export class CommentThreadStore {
 
     this.ydoc.transact(() => {
       this.commentThreads.delete(threadIndex, 1);
-    }, 'comment-thread-resolve');
+    }, 'comment-thread-delete');
 
     return true;
   }
@@ -348,7 +420,7 @@ export class CommentThreadStore {
     ));
   }
 
-  resolveCommentThread(thread) {
+  resolveThreadForUi(thread) {
     const state = this.getEditorState();
     if (!thread || !state || !this.ydoc) {
       return null;
@@ -357,6 +429,35 @@ export class CommentThreadStore {
     const normalizedAnchor = normalizeCommentAnchor(thread);
     if (!normalizedAnchor) {
       return null;
+    }
+
+    if (normalizedAnchor.anchorKind === 'diagram-element') {
+      return {
+        ...thread,
+        anchor: {
+          anchorEndLine: normalizedAnchor.anchorEndLine,
+          anchorKind: normalizedAnchor.anchorKind,
+          anchorPoint: normalizedAnchor.anchorPoint,
+          anchorQuote: normalizedAnchor.anchorQuote,
+          anchorSnapshot: normalizedAnchor.anchorSnapshot,
+          anchorStartLine: normalizedAnchor.anchorStartLine,
+          ...(normalizedAnchor.diagramKey ? { diagramKey: normalizedAnchor.diagramKey } : {}),
+          elementId: normalizedAnchor.elementId,
+          endLine: normalizedAnchor.anchorEndLine,
+          excerpt: normalizedAnchor.anchorQuote,
+          kind: normalizedAnchor.anchorKind,
+          quote: normalizedAnchor.anchorQuote,
+          startLine: normalizedAnchor.anchorStartLine,
+        },
+        anchorEndLine: normalizedAnchor.anchorEndLine,
+        anchorKind: normalizedAnchor.anchorKind,
+        anchorPoint: normalizedAnchor.anchorPoint,
+        anchorQuote: normalizedAnchor.anchorQuote,
+        anchorSnapshot: normalizedAnchor.anchorSnapshot,
+        anchorStartLine: normalizedAnchor.anchorStartLine,
+        ...(normalizedAnchor.diagramKey ? { diagramKey: normalizedAnchor.diagramKey } : {}),
+        elementId: normalizedAnchor.elementId,
+      };
     }
 
     const anchorStart = this.resolveCommentPosition(normalizedAnchor.anchorStart);

@@ -196,6 +196,10 @@ function bindToolbarEvents() {
     });
   });
 
+  this.elements.reviewRelinquishButton?.addEventListener('click', () => {
+    this.handleReviewRelinquishControl?.();
+  });
+
   this.elements.fileHistoryButton?.addEventListener('click', () => {
     const route = this.navigation.getHashRoute();
     if (route.type === 'git-file-preview') {
@@ -331,6 +335,10 @@ function bindEvents() {
 
   this.elements.tabLockTakeoverButton?.addEventListener('click', () => {
     this.handleTabTakeover();
+  });
+
+  this.elements.reviewControlTakeoverButton?.addEventListener('click', () => {
+    this.handleReviewTakeControl?.();
   });
 
   this.elements.toggleWrapButton?.addEventListener('click', () => {

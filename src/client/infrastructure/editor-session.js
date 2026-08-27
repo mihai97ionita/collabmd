@@ -1,8 +1,16 @@
 import * as Y from 'yjs';
 
+import { normalizeCommentAnchor } from '../../domain/comment-threads.js';
 import { CommentThreadStore } from './comment-thread-store.js';
 import { EditorCollaborationClient } from './editor-collaboration-client.js';
 import { EditorViewAdapter } from './editor-view-adapter.js';
+
+function createMarkdownCommentAnchor(anchor) {
+  if (anchor?.anchorKind !== 'diagram-element') {
+    return null;
+  }
+  return normalizeCommentAnchor(anchor);
+}
 
 export class EditorSession {
   constructor({
@@ -58,6 +66,7 @@ export class EditorSession {
       },
     });
     this.commentThreadStore = new CommentThreadStore({
+      createAnchor: createMarkdownCommentAnchor,
       getDoc: () => this.collaborationClient.ydoc,
       getEditorState: () => this.viewAdapter.getState(),
       getLocalUser: () => this.collaborationClient.getLocalUser(),
@@ -204,6 +213,14 @@ export class EditorSession {
     return this.commentThreadStore.toggleCommentReaction(threadId, messageId, emoji);
   }
 
+  editCommentMessage(threadId, messageId, body) {
+    return this.commentThreadStore.editCommentMessage(threadId, messageId, body);
+  }
+
+  resolveCommentThread(threadId) {
+    return this.commentThreadStore.resolveCommentThread(threadId);
+  }
+
   deleteCommentThread(threadId) {
     return this.commentThreadStore.deleteCommentThread(threadId);
   }
@@ -226,6 +243,14 @@ export class EditorSession {
 
   scrollToLine(lineNumber, viewportRatio = 0) {
     return this.viewAdapter.scrollToLine(lineNumber, viewportRatio);
+  }
+
+  revealCommentAnchor(anchor) {
+    return this.viewAdapter.revealCommentAnchor(anchor);
+  }
+
+  clearCommentReveal() {
+    return this.viewAdapter.clearCommentReveal();
   }
 
   revealSearchMatch(match) {

@@ -199,6 +199,42 @@ const remoteUpdateFlashField = StateField.define({
   provide: (field) => EditorView.decorations.from(field),
 });
 
+const addCommentRevealEffect = StateEffect.define();
+const clearCommentRevealEffect = StateEffect.define();
+const commentRevealMark = Decoration.line({ class: 'cm-comment-reveal-line' });
+const commentRevealField = StateField.define({
+  create: () => Decoration.none,
+  update(decorations, transaction) {
+    let nextDecorations = decorations.map(transaction.changes);
+
+    transaction.effects.forEach((effect) => {
+      if (effect.is(clearCommentRevealEffect)) {
+        nextDecorations = Decoration.none;
+        return;
+      }
+
+      if (effect.is(addCommentRevealEffect)) {
+        const { fromLine, toLine } = effect.value;
+        const ranges = [];
+        for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
+          try {
+            const line = transaction.state.doc.line(lineNumber);
+            ranges.push(commentRevealMark.range(line.from));
+          } catch {
+            // line number out of range — skip
+          }
+        }
+        nextDecorations = ranges.length > 0
+          ? Decoration.set(ranges, true)
+          : Decoration.none;
+      }
+    });
+
+    return nextDecorations;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
 function isBracketBeforeCaret(range, state) {
   return state.selection.ranges.some((selectionRange) =>
     selectionRange.empty && range.to === selectionRange.head
@@ -520,6 +556,7 @@ export class EditorViewAdapter {
       this.syntaxThemeCompartment.of(this.initialTheme === 'dark' ? oneDark : []),
       this.lineWrappingCompartment.of(this.lineWrappingEnabled ? EditorView.lineWrapping : []),
       remoteUpdateFlashField,
+      commentRevealField,
       this.createUpdateListener(),
     ];
 
@@ -1023,6 +1060,46 @@ export class EditorViewAdapter {
 
     scroller.scrollTo({ top: nextScrollTop });
     return true;
+  }
+
+  revealCommentAnchor(anchor) {
+    const state = this.editorView?.state;
+    if (!state || !this.editorView) {
+      return false;
+    }
+
+    const kind = anchor?.anchorKind || anchor?.kind || 'line';
+    if (kind === 'diagram-element') {
+      return false;
+    }
+
+    const startLine = Math.min(
+      Math.max(Math.round(Number(anchor?.startLine ?? anchor?.anchorStartLine ?? 1)), 1),
+      state.doc.lines,
+    );
+    const endLine = Math.min(
+      Math.max(Math.round(Number(anchor?.endLine ?? anchor?.anchorEndLine ?? startLine)), startLine),
+      state.doc.lines,
+    );
+
+    this.clearCommentReveal();
+    this.scrollToLine(startLine, 0.2);
+
+    this.editorView.dispatch({
+      effects: [addCommentRevealEffect.of({ fromLine: startLine, toLine: endLine })],
+    });
+
+    return true;
+  }
+
+  clearCommentReveal() {
+    if (!this.editorView) {
+      return;
+    }
+
+    this.editorView.dispatch({
+      effects: [clearCommentRevealEffect.of()],
+    });
   }
 
   revealSearchMatch({ column = 1, length = 0, line = 1 } = {}) {

@@ -639,6 +639,24 @@ export class CollaborationRoom {
     };
   }
 
+  // Live-state accessors for external writers (e.g. the review reply API).
+  // Returns the in-memory Yjs comment threads and editable content so a caller
+  // can merge a change and route it back through applyExternalContent without
+  // racing the room's own debounced persist.
+  getLiveCommentThreads() {
+    if (this.destroyed || this.deleted) {
+      return [];
+    }
+    return serializeCommentThreads(this.doc.getArray('comments'));
+  }
+
+  getLiveContent() {
+    if (this.destroyed || this.deleted) {
+      return null;
+    }
+    return this.getPersistedContent();
+  }
+
   applyExternalDeletion() {
     this.markDeleted();
     return this.destroy();

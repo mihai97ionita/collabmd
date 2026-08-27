@@ -445,6 +445,7 @@ test('keeps the preview container width stable when the outline opens in split m
   await openFile(page, 'README.md');
   await replaceEditorContent(page, OUTLINE_TEST_DOCUMENT);
   await expect(page.locator('#previewContent')).toContainText('My Vault');
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
 
   const widthBefore = await page.locator('#previewContainer').evaluate((element) => element.clientWidth);

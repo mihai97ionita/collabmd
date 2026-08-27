@@ -341,7 +341,7 @@ describe('CommentUiController browser behavior', () => {
     });
 
     expect(Array.from(controller.cardRoot.querySelectorAll('.comment-thread-card-action')).map((button) => button.textContent))
-      .toEqual(['Reply', 'Resolve']);
+      .toEqual(['Reply', 'Resolve', 'Edit']);
   });
 
   it('preserves a new comment draft when thread updates trigger a card rerender', async () => {

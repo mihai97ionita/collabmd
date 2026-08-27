@@ -121,6 +121,48 @@
   overscroll-behavior: contain;
 }
 
+.diagram-preview-frame.is-grabbable {
+  cursor: grab;
+}
+
+.diagram-preview-frame.is-grabbing {
+  cursor: grabbing;
+  user-select: none;
+  touch-action: none;
+}
+
+.diagram-preview-frame :is(g.node, g.edgePath, g.edgeLabel) {
+  cursor: context-menu;
+}
+
+.diagram-preview-frame.is-comment-mode {
+  cursor: crosshair;
+}
+
+.diagram-preview-frame.is-comment-mode :is(g.node, g.edgePath, g.edgeLabel) {
+  cursor: pointer;
+}
+
+.diagram-comment-toggle.is-active {
+  background: color-mix(in oklab, var(--color-primary) 18%, transparent);
+  border-color: color-mix(in oklab, var(--color-primary) 60%, var(--color-border) 40%);
+  color: var(--color-primary);
+}
+
+.diagram-comment-hint {
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+  border-radius: 8px;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.diagram-comment-hint[hidden] {
+  display: none;
+}
+
 .diagram-preview-frame > svg {
   margin-inline: auto;
 }

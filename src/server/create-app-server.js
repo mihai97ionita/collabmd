@@ -20,6 +20,7 @@ import { RoomRegistry } from './domain/collaboration/room-registry.js';
 import { RipgrepSearchService } from './domain/ripgrep-search-service.js';
 import { createRequestHandler } from './infrastructure/http/create-request-handler.js';
 import { HostedMetadataStore } from './infrastructure/persistence/hosted-metadata-store.js';
+import { ReviewStore } from './infrastructure/persistence/review-store.js';
 import { VaultFileStore } from './infrastructure/persistence/vault-file-store.js';
 import { attachCollaborationGateway } from './infrastructure/websocket/attach-collaboration-gateway.js';
 import { isDrawioLeaseRoom } from '../domain/drawio-room.js';
@@ -74,6 +75,7 @@ export function createAppServer(config = loadConfig()) {
       })
     : null;
   const vaultFileStore = new VaultFileStore({ vaultDir: config.vaultDir });
+  const reviewStore = new ReviewStore({ vaultDir: config.vaultDir });
   const backlinkIndex = new BacklinkIndex({ vaultFileStore });
   let fileSystemSyncService = null;
   let workspaceMutationCoordinator = null;
@@ -165,6 +167,7 @@ export function createAppServer(config = loadConfig()) {
     hostedWorkspaceService,
     githubSetupFlow,
     structurizrWorkspaceService,
+    reviewStore,
   );
   const httpServer = createServer((req, res) => {
     requestHandler(req, res).catch((error) => {

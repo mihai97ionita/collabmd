@@ -1537,6 +1537,7 @@ test('opens .puml files with side-by-side PlantUML preview', async ({ page }) =>
 
   await openFile(page, 'sample-plantuml.puml');
 
+  await page.locator('.view-btn[data-view="split"]').click();
   await expect(page.locator('#editorLayout')).toHaveAttribute('data-view', 'split');
   await expect(page.locator('#previewContent .plantuml-frame svg')).toBeVisible();
   await expect(page.locator('#previewContent .plantuml-frame')).toContainText('standalone-puml');

@@ -7,7 +7,7 @@ export class LayoutController {
     this.mobileBreakpointQuery = mobileBreakpointQuery;
     this.onMeasureEditor = onMeasureEditor;
     this.onViewRequest = onViewRequest;
-    this.preferredView = 'split';
+    this.preferredView = 'preview';
     this.mobileShowsEditor = !this.isMobileViewport();
     this.currentView = this.mobileShowsEditor ? this.preferredView : 'preview';
     this.editorLayout = document.getElementById('editorLayout');

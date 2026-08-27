@@ -33,6 +33,9 @@
   --color-comment-soft: rgba(37, 99, 235, 0.08);
   --color-comment-strong: rgba(37, 99, 235, 0.14);
   --color-comment-text: #1e40af;
+  --color-comment-reveal-accent: var(--color-comment);
+  --color-comment-reveal-bg: var(--color-comment-soft);
+  --color-comment-reveal-pulse: var(--color-comment-strong);
 
   --color-error: #dc2626;
   --color-danger: #dc2626;

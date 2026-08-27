@@ -252,6 +252,11 @@ function openThreadFromOverview(threadId) {
 }
 
 /** @this {CommentUiStateContext} */
+function closeThreadCard() {
+  this.onRevealAnchor?.(null);
+}
+
+/** @this {CommentUiStateContext} */
 function getThreadGroups() {
   const groups = new Map();
   this.threads.forEach((thread) => {
@@ -306,6 +311,7 @@ export const commentUiStateMethods = {
   attachSession,
   clearSelectionRevealTimer,
   closeDrawer,
+  closeThreadCard,
   getThreadGroups,
   handleEditorContentChange,
   openThreadFromOverview,

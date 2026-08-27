@@ -5,6 +5,12 @@ const DIAGRAM_ACTION_ICONS = {
       <path d="M3.7 10.5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v.7" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
     </svg>
   `,
+  comment: `
+    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <path d="M2.5 4h11v6.5h-4l-2.5 2.5v-2.5H2.5z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+      <path d="M5 7h6M5 9h4" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
+    </svg>
+  `,
   download: `
     <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
       <path d="M8 2.2v7.2" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.4"/>
