@@ -479,6 +479,7 @@ export function loadConfig(overrides = {}) {
     port: parsePositiveInt(process.env.PORT, 1234),
     nodeEnv,
     plantumlServerUrl: process.env.PLANTUML_SERVER_URL || 'https://www.plantuml.com/plantuml',
+    publicBaseUrl: normalizePublicBaseUrl(overrides.publicBaseUrl ?? process.env.PUBLIC_BASE_URL),
     publicDir,
     vaultDir,
     publicWsBaseUrl: process.env.PUBLIC_WS_BASE_URL || '',

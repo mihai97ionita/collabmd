@@ -77,6 +77,7 @@ export function createRequestHandler(
   });
   const handleReviewApi = createReviewApiHandler({
     basePath: config.basePath,
+    publicBaseUrl: config.publicBaseUrl,
     reviewStore,
     vaultFileStore,
   });

@@ -7,7 +7,11 @@ import { parseJsonBody, REQUEST_BODY_LIMIT_BYTES } from './request-body.js';
 const REVIEW_REQUEST_LIMIT_BYTES = REQUEST_BODY_LIMIT_BYTES;
 const TEXT_MARKDOWN_CONTENT_TYPE = 'text/markdown; charset=utf-8';
 
-function buildAbsoluteReviewUrl(req, basePath, vaultPath) {
+function buildAbsoluteReviewUrl(req, basePath, vaultPath, publicBaseUrl = '') {
+  if (publicBaseUrl) {
+    const base = basePath ? `${publicBaseUrl}${basePath}` : publicBaseUrl;
+    return `${base}/#file=${encodeURIComponent(vaultPath)}`;
+  }
   const host = req.headers.host || 'localhost';
   const protocol = req.headers['x-forwarded-proto'] || 'http';
   const base = basePath ? `${protocol}://${host}${basePath}` : `${protocol}://${host}`;
@@ -60,7 +64,7 @@ async function handleReviewCreate(context, req, res) {
       reviewId: result.reviewId,
       secret: result.secret,
       vaultPath: result.vaultPath,
-      url: buildAbsoluteReviewUrl(req, context.basePath, result.vaultPath),
+      url: buildAbsoluteReviewUrl(req, context.basePath, result.vaultPath, context.publicBaseUrl),
     });
   } catch (error) {
     handleApiError(req, res, error, '[api] Failed to create review:', 'Failed to create review');
@@ -110,7 +114,7 @@ async function handleReviewRead(context, req, res, requestUrl) {
       includeResolved,
     });
 
-    const reviewUrl = buildAbsoluteReviewUrl(req, context.basePath, meta.vaultPath);
+    const reviewUrl = buildAbsoluteReviewUrl(req, context.basePath, meta.vaultPath, context.publicBaseUrl);
     sendResponse(req, res, {
       body: markdown,
       headers: {
@@ -132,8 +136,8 @@ const ROUTE_TABLE = [
   { method: 'GET', path: '/api/review/:id', handler: handleReviewRead },
 ];
 
-export function createReviewApiHandler({ reviewStore, vaultFileStore, basePath = '' } = {}) {
-  const context = { reviewStore, vaultFileStore, basePath };
+export function createReviewApiHandler({ reviewStore, vaultFileStore, basePath = '', publicBaseUrl = '' } = {}) {
+  const context = { reviewStore, vaultFileStore, basePath, publicBaseUrl };
 
   return async function handleReviewApi(req, res, requestUrl) {
     if (isReviewPostPath(requestUrl.pathname) && req.method === 'POST') {

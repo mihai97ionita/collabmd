@@ -32,8 +32,10 @@ from mcp.server.fastmcp import FastMCP
 
 COLLABMD_URL = os.environ.get("COLLABMD_URL", "http://localhost:1317").rstrip("/")
 HTTP_TIMEOUT = 30.0
+MCP_HOST = os.environ.get("MCP_HOST", "0.0.0.0")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8000"))
 
-mcp = FastMCP("collabmd-review")
+mcp = FastMCP("collabmd-review", host=MCP_HOST, port=MCP_PORT)
 
 
 def _post_review(markdown: str, title: Optional[str]) -> dict:
@@ -126,4 +128,6 @@ def get_review(review_id: str, secret: str, include_resolved: bool = False) -> s
 
 
 if __name__ == "__main__":
-    mcp.run()
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    mcp.run(transport=transport)
+

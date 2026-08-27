@@ -162,3 +162,35 @@ test('POST /api/review rejects an empty markdown body with 400', async () => {
     await server.close();
   }
 });
+
+test('POST /api/review and GET /api/review/:id use publicBaseUrl when configured', async () => {
+  const publicBaseUrl = 'https://collabmd.example.internal';
+  const server = await startTestServer({
+    publicBaseUrl,
+  });
+  try {
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: '# Public Base URL test' }),
+    });
+    assert.equal(createResponse.statusCode, 201);
+    const created = JSON.parse(createResponse.body);
+    assert.ok(
+      created.url.startsWith(`${publicBaseUrl}/#file=`),
+      `url "${created.url}" must start with publicBaseUrl "${publicBaseUrl}"`,
+    );
+
+    const getResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+    );
+    assert.equal(getResponse.statusCode, 200);
+    assert.ok(
+      getResponse.headers['x-review-url'].startsWith(`${publicBaseUrl}/#file=`),
+      'X-Review-Url header must start with publicBaseUrl',
+    );
+  } finally {
+    await server.close();
+  }
+});
+
