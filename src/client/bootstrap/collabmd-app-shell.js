@@ -382,24 +382,7 @@ export class CollabMdAppShell {
       },
       onReplyToThread: (threadId, body) => this.replyToCommentThread(threadId, body),
       onEditMessage: (threadId, messageId, body) => this.editCommentMessage(threadId, messageId, body),
-      onRevealAnchor: (anchor) => {
-        this.scrollSyncController?.suspendSync?.(500);
-        if (!anchor) {
-          this.session?.clearCommentReveal?.();
-          this.previewRenderer?.clearPreviewReveal?.();
-          return;
-        }
-        if (anchor.anchorKind === 'diagram-element') {
-          this.previewRenderer?.revealDiagramElement?.(anchor.elementId);
-          return;
-        }
-        this.session?.revealCommentAnchor?.(anchor);
-        requestAnimationFrame(() => {
-          this.scrollSyncController?.suspendSync?.(0);
-          this.scrollSyncController?.syncPreviewToEditor?.();
-          this.previewRenderer?.revealPreviewAnchor?.(anchor);
-        });
-      },
+      onRevealAnchor: (anchor) => this.revealCommentAnchor(anchor),
       onToggleReaction: (threadId, messageId, emoji) => this.session?.toggleCommentReaction(threadId, messageId, emoji),
       onResolveThread: (threadId) => this.resolveCommentThread(threadId),
     });

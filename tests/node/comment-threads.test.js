@@ -65,6 +65,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
       x: 100,
       y: 60,
     },
+    diagramKey: 'mermaid-source-0',
     createdAt: 123,
     elementId: 'shape-1',
     id: 'thread-diagram',
@@ -78,6 +79,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
 
   const [serialized] = serializeCommentThreads(threads);
   assert.deepEqual(serialized, {
+    anchorEndLine: null,
     anchorKind: 'diagram-element',
     anchorPoint: { x: 140, y: 80 },
     anchorQuote: 'Architecture node',
@@ -89,6 +91,8 @@ test('comment thread serialization supports diagram element anchors with a fallb
       x: 100,
       y: 60,
     },
+    diagramKey: 'mermaid-source-0',
+    anchorStartLine: null,
     createdAt: 123,
     createdByColor: '',
     createdByName: 'Tester',

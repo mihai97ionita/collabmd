@@ -60,6 +60,11 @@ function normalizeDiagramElementId(value) {
   return normalized || null;
 }
 
+function normalizeDiagramKey(value) {
+  const normalized = asString(value).trim().slice(0, 240);
+  return normalized || null;
+}
+
 function normalizeDiagramAnchorPoint(value) {
   const point = asObject(value);
   const x = asFiniteNumber(point?.x);
@@ -248,16 +253,20 @@ export function normalizeCommentAnchor(record = {}) {
   if (anchorKind === 'diagram-element') {
     const anchorPoint = normalizeDiagramAnchorPoint(record.anchorPoint);
     const anchorSnapshot = normalizeDiagramAnchorSnapshot(record.anchorSnapshot);
+    const diagramKey = normalizeDiagramKey(record.diagramKey);
     const elementId = normalizeDiagramElementId(record.elementId);
     if (!anchorPoint || !anchorSnapshot || !elementId) {
       return null;
     }
 
     return {
+      anchorEndLine: asFiniteNumber(record.anchorEndLine),
       anchorKind,
       anchorPoint,
       anchorQuote: normalizeCommentQuote(record.anchorQuote || anchorSnapshot.text),
       anchorSnapshot,
+      anchorStartLine: asFiniteNumber(record.anchorStartLine),
+      ...(diagramKey ? { diagramKey } : {}),
       elementId,
     };
   }
@@ -307,6 +316,15 @@ export function createCommentThreadSharedType(record = {}) {
     thread.set('anchorPoint', anchor.anchorPoint);
     thread.set('anchorSnapshot', anchor.anchorSnapshot);
     thread.set('elementId', anchor.elementId);
+    if (anchor.anchorStartLine != null) {
+      thread.set('anchorStartLine', anchor.anchorStartLine);
+    }
+    if (anchor.anchorEndLine != null) {
+      thread.set('anchorEndLine', anchor.anchorEndLine);
+    }
+    if (anchor.diagramKey) {
+      thread.set('diagramKey', anchor.diagramKey);
+    }
   } else {
     thread.set('anchorEnd', anchor.anchorEnd);
     thread.set('anchorEndLine', anchor.anchorEndLine);
@@ -340,6 +358,7 @@ export function serializeCommentThread(thread, { includeResolved = false } = {})
     anchorStartLine: readThreadValue(thread, 'anchorStartLine'),
     anchorPoint: readThreadValue(thread, 'anchorPoint'),
     anchorSnapshot: readThreadValue(thread, 'anchorSnapshot'),
+    diagramKey: readThreadValue(thread, 'diagramKey'),
     elementId: readThreadValue(thread, 'elementId'),
   });
   const messages = serializeMessages(readThreadValue(thread, 'messages'));

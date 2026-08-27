@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildMermaidCommentAnchor,
   classifyElementType,
   findDiagramShell,
   isCommentModeActive,
@@ -122,4 +123,70 @@ test('isCommentModeActive reads the data-diagram-comment-mode attribute', () => 
   const inactive = makeFakeElement({ classList: ['mermaid-shell'], dataset: { diagramCommentMode: 'false' } });
   assert.equal(isCommentModeActive(inactive), false);
   assert.equal(isCommentModeActive(null), false);
+});
+
+test('buildMermaidCommentAnchor enriches the anchor with the shell source line', () => {
+  globalThis.SVGSVGElement = class SVGSVGElement {};
+  try {
+    const svg = {
+      createSVGPoint: () => ({ x: 0, y: 0, matrixTransform: () => ({ x: 10, y: 20 }) }),
+      getScreenCTM: () => ({ inverse: () => ({}) }),
+    };
+    Object.setPrototypeOf(svg, globalThis.SVGSVGElement.prototype);
+    const node = makeFakeElement({
+      id: 'flowchart-A-0',
+      classList: ['node'],
+      textContent: 'Start',
+    });
+    node.ownerSVGElement = svg;
+    node.getBBox = () => ({ x: 0, y: 0, width: 80, height: 40 });
+    const shell = makeFakeElement({ classList: ['mermaid-shell'] });
+    shell.getAttribute = (name) => {
+      if (name === 'data-source-line') return '42';
+      if (name === 'data-source-line-end') return '48';
+      if (name === 'data-mermaid-key') return 'mermaid-source-0';
+      return null;
+    };
+    node.closest = (selector) => {
+      if (selector.includes('mermaid-shell')) return shell;
+      if (selector.includes('node') || selector.includes('edgePath') || selector.includes('edgeLabel')) return node;
+      return null;
+    };
+
+    const anchor = buildMermaidCommentAnchor({ target: node, clientX: 5, clientY: 5 });
+    assert.equal(anchor.anchorKind, 'diagram-element');
+    assert.equal(anchor.elementId, 'flowchart-A-0');
+    assert.equal(anchor.anchorStartLine, 42);
+    assert.equal(anchor.anchorEndLine, 48);
+    assert.equal(anchor.diagramKey, 'mermaid-source-0');
+  } finally {
+    delete globalThis.SVGSVGElement;
+  }
+});
+
+test('buildMermaidCommentAnchor sets anchorStartLine to null when the shell has no data-source-line', () => {
+  globalThis.SVGSVGElement = class SVGSVGElement {};
+  try {
+    const svg = {
+      createSVGPoint: () => ({ x: 0, y: 0, matrixTransform: () => ({ x: 10, y: 20 }) }),
+      getScreenCTM: () => ({ inverse: () => ({}) }),
+    };
+    Object.setPrototypeOf(svg, globalThis.SVGSVGElement.prototype);
+    const node = makeFakeElement({ id: 'A', classList: ['node'], textContent: 'Start' });
+    node.ownerSVGElement = svg;
+    node.getBBox = () => ({ x: 0, y: 0, width: 80, height: 40 });
+    const shell = makeFakeElement({ classList: ['mermaid-shell'] });
+    shell.getAttribute = () => null;
+    node.closest = (selector) => {
+      if (selector.includes('mermaid-shell')) return shell;
+      if (selector.includes('node')) return node;
+      return null;
+    };
+
+    const anchor = buildMermaidCommentAnchor({ target: node, clientX: 5, clientY: 5 });
+    assert.equal(anchor.anchorStartLine, null);
+    assert.equal(anchor.anchorEndLine, null);
+  } finally {
+    delete globalThis.SVGSVGElement;
+  }
 });

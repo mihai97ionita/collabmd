@@ -61,7 +61,7 @@ function readElementId(target) {
   if (!id) {
     return null;
   }
-  const trimmed = id.trim();
+  const trimmed = id.trim().replace(/^mermaid-\d+-/, '');
   return trimmed || null;
 }
 
@@ -140,8 +140,15 @@ export function buildMermaidCommentAnchor({ target, clientX, clientY }) {
   }
 
   const text = readElementText(mermaidTarget);
+  const shell = mermaidTarget.closest('.mermaid-shell, .plantuml-shell');
+  const anchorStartLine = asPositiveInt(shell?.getAttribute('data-source-line'));
+  const anchorEndLine = asPositiveInt(shell?.getAttribute('data-source-line-end'));
+  const diagramKey = shell?.getAttribute('data-mermaid-key')
+    || shell?.getAttribute('data-plantuml-key')
+    || null;
   return {
     anchorKind: 'diagram-element',
+    anchorEndLine,
     anchorPoint: { x: point.x, y: point.y },
     anchorQuote: text || elementId,
     anchorSnapshot: {
@@ -152,8 +159,15 @@ export function buildMermaidCommentAnchor({ target, clientX, clientY }) {
       x: snapshot.x,
       y: snapshot.y,
     },
+    diagramKey,
+    anchorStartLine,
     elementId,
   };
+}
+
+function asPositiveInt(value) {
+  const num = Number.parseInt(value, 10);
+  return Number.isFinite(num) && num > 0 ? num : null;
 }
 
 export {

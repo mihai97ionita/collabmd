@@ -47,6 +47,9 @@ export class PreviewRenderer {
     this.isLargeDocument = false;
     this.hydrationPaused = false;
     this.frontmatterCollapsed = false;
+    this.previewRevealGeneration = 0;
+    this.previewRevealTimer = null;
+    this.previewRevealCancel = null;
 
     this.handlePreviewClick = (event) => {
       const frontmatterToggle = event.target.closest('.frontmatter-toggle');
@@ -206,6 +209,13 @@ export class PreviewRenderer {
   }
 
   clearPreviewReveal() {
+    this.previewRevealGeneration += 1;
+    if (this.previewRevealTimer !== null) {
+      clearTimeout(this.previewRevealTimer);
+      this.previewRevealTimer = null;
+    }
+    this.previewRevealCancel?.(false);
+    this.previewRevealCancel = null;
     if (!this.previewElement) {
       return;
     }
@@ -222,11 +232,20 @@ export class PreviewRenderer {
     const containerRect = this.previewContainer.getBoundingClientRect();
     const offsetTop = elementRect.top - containerRect.top;
     const offsetBottom = elementRect.bottom - containerRect.bottom;
-    if (offsetTop < 0 || offsetBottom > 0) {
-      const delta = offsetTop < 0
-        ? offsetTop - gap
-        : offsetBottom + gap;
-      this.previewContainer.scrollBy({ top: delta, behavior: 'smooth' });
+    const elementHeight = elementRect.height;
+    const containerHeight = this.previewContainer.clientHeight;
+
+    if (elementHeight > containerHeight * 0.8) {
+      if (offsetTop < 0 || offsetBottom > 0) {
+        const delta = offsetTop < 0 ? offsetTop - gap : offsetBottom + gap;
+        this.previewContainer.scrollBy({ top: delta, behavior: 'smooth' });
+      }
+      return;
+    }
+
+    const centerDelta = (elementRect.top + elementHeight / 2) - (containerRect.top + containerHeight / 2);
+    if (Math.abs(centerDelta) > 10) {
+      this.previewContainer.scrollBy({ top: centerDelta, behavior: 'smooth' });
     }
   }
 
@@ -237,7 +256,7 @@ export class PreviewRenderer {
 
     const kind = anchor?.anchorKind || anchor?.kind || 'line';
     if (kind === 'diagram-element') {
-      return this.revealDiagramElement(anchor?.elementId ?? anchor?.elementId);
+      return this.revealDiagramElement(anchor);
     }
 
     const startLine = Math.round(Number(anchor?.startLine ?? anchor?.anchorStartLine ?? 1));
@@ -270,17 +289,54 @@ export class PreviewRenderer {
     return true;
   }
 
-  revealDiagramElement(elementId, attempts = 0) {
-    if (!this.previewElement || !elementId) {
+  revealDiagramElement(anchorOrElementId, attempts = 0, revealGeneration = null) {
+    if (!this.previewElement) {
       return false;
     }
 
-    this.clearPreviewReveal();
+    if (revealGeneration === null) {
+      this.clearPreviewReveal();
+      revealGeneration = this.previewRevealGeneration;
+    } else if (revealGeneration !== this.previewRevealGeneration) {
+      return false;
+    }
+
+    const anchor = typeof anchorOrElementId === 'string'
+      ? { elementId: anchorOrElementId }
+      : anchorOrElementId;
+    const elementId = anchor?.elementId;
+    if (!elementId) {
+      return false;
+    }
 
     const escapedId = typeof CSS !== 'undefined' && CSS.escape
       ? CSS.escape(String(elementId))
       : String(elementId).replace(/["\\]/g, '\\$&');
-    const mermaidNode = this.previewElement.querySelector(
+
+    // Element not found — diagram may be below the fold and not yet hydrated.
+    // Layer 1: scroll the diagram's shell into the preview container so the
+    // IntersectionObserver fires and Mermaid hydrates it. If the anchor
+    // carries a source line, find the shell by data-source-line (precise).
+    // Otherwise fall back to progressively scrolling unhydrated shells.
+    const shells = Array.from(
+      this.previewElement.querySelectorAll('.mermaid-shell, .plantuml-shell'),
+    );
+    const diagramKey = String(anchor?.diagramKey ?? '').trim();
+    const shellByKey = diagramKey
+      ? shells.find((shell) => (
+        shell.getAttribute('data-mermaid-key') === diagramKey
+        || shell.getAttribute('data-plantuml-key') === diagramKey
+      ))
+      : null;
+    const startLine = Math.round(Number(anchor?.anchorStartLine));
+    const shellByLine = !diagramKey && Number.isFinite(startLine) && startLine > 0
+      ? shells.find((shell) => {
+        const shellStart = Number.parseInt(shell.getAttribute('data-source-line') || '', 10);
+        return Number.isFinite(shellStart) && shellStart === startLine;
+      })
+      : null;
+    const scopedShell = shellByKey ?? shellByLine;
+    const mermaidNode = (diagramKey ? shellByKey : scopedShell ?? this.previewElement)?.querySelector?.(
       `[data-mermaid-element-id="${escapedId}"]`,
     );
 
@@ -293,22 +349,48 @@ export class PreviewRenderer {
       return true;
     }
 
-    if (attempts < 8) {
+    if (attempts < 12) {
+      if (scopedShell) {
+        // Precise path: scroll the exact shell into view on every retry until
+        // hydration completes and the tagged element appears.
+        this.scrollIntoPreviewContainer(scopedShell);
+      } else {
+        // Legacy path: scroll the next unhydrated shell into view.
+        const unhydratedShells = shells.filter((shell) => !this.isShellHydrated(shell));
+        const shellToReveal = unhydratedShells[attempts] ?? unhydratedShells[0];
+        if (shellToReveal) {
+          this.scrollIntoPreviewContainer(shellToReveal);
+        }
+      }
       return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve(this.revealDiagramElement(elementId, attempts + 1));
-        }, 150);
+        this.previewRevealCancel = resolve;
+        this.previewRevealTimer = setTimeout(() => {
+          this.previewRevealTimer = null;
+          this.previewRevealCancel = null;
+          if (revealGeneration !== this.previewRevealGeneration) {
+            resolve(false);
+            return;
+          }
+          resolve(this.revealDiagramElement(anchorOrElementId, attempts + 1, revealGeneration));
+        }, 200);
       });
     }
 
-    const shell = this.previewElement.querySelector('.mermaid-shell, .plantuml-shell');
-    if (shell) {
-      shell.classList.add('preview-comment-reveal');
-      this.scrollIntoPreviewContainer(shell);
+    // Exhausted retries — fall back to highlighting the shell we found.
+    const fallbackShell = shellByLine ?? shells[0];
+    if (fallbackShell) {
+      this.scrollIntoPreviewContainer(fallbackShell);
+      fallbackShell.classList.add('preview-comment-reveal');
       return true;
     }
 
     return false;
+  }
+
+  isShellHydrated(shell) {
+    return shell?.dataset?.mermaidHydrated === 'true'
+      || shell?.dataset?.plantumlHydrated === 'true'
+      || shell?.getAttribute?.('data-diagram-output') === 'true';
   }
 
   queueRender() {

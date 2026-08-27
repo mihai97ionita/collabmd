@@ -132,3 +132,86 @@ test('comment overview sidebar open clears stale state and refreshes', () => {
   assert.equal(context._commentOverviewStale, false);
   assert.deepEqual(calls, [['refresh']]);
 });
+
+test('diagram comment reveal runs after pending line sync and renews suspension', () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const frames = [];
+  const calls = [];
+  const anchor = {
+    anchorKind: 'diagram-element',
+    anchorStartLine: 42,
+    elementId: 'flowchart-UserDb-0',
+  };
+  const session = {};
+  const context = {
+    previewRenderer: {
+      revealDiagramElement: (value) => calls.push(['revealDiagramElement', value]),
+    },
+    scrollSyncController: {
+      suspendSync: (duration) => calls.push(['suspendSync', duration]),
+    },
+    session,
+  };
+
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+
+  try {
+    requestAnimationFrame(() => {
+      calls.push(['lineSync']);
+      context.scrollSyncController.suspendSync(0);
+    });
+
+    commentsFeature.revealCommentAnchor.call(context, anchor);
+
+    assert.deepEqual(calls, []);
+    frames.shift()(0);
+    frames.shift()(0);
+    assert.deepEqual(calls, [
+      ['lineSync'],
+      ['suspendSync', 0],
+      ['suspendSync', 800],
+      ['revealDiagramElement', anchor],
+    ]);
+  } finally {
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  }
+});
+
+test('closing a comment invalidates a queued diagram reveal', () => {
+  const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const frames = [];
+  const calls = [];
+  const context = {
+    previewRenderer: {
+      clearPreviewReveal: () => calls.push(['clearPreviewReveal']),
+      revealDiagramElement: () => calls.push(['revealDiagramElement']),
+    },
+    session: {
+      clearCommentReveal: () => calls.push(['clearCommentReveal']),
+    },
+  };
+
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+
+  try {
+    commentsFeature.revealCommentAnchor.call(context, {
+      anchorKind: 'diagram-element',
+      elementId: 'flowchart-user-db-0',
+    });
+    commentsFeature.revealCommentAnchor.call(context, null);
+    frames.shift()(0);
+
+    assert.deepEqual(calls, [
+      ['clearCommentReveal'],
+      ['clearPreviewReveal'],
+    ]);
+  } finally {
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+  }
+});

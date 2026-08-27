@@ -4,6 +4,35 @@ import {
 } from '../../../domain/file-kind.js';
 
 export const commentsFeature = {
+  revealCommentAnchor(anchor) {
+    const revealRequest = (this._commentRevealRequest ?? 0) + 1;
+    this._commentRevealRequest = revealRequest;
+
+    if (!anchor) {
+      this.session?.clearCommentReveal?.();
+      this.previewRenderer?.clearPreviewReveal?.();
+      return;
+    }
+
+    if (anchor.anchorKind === 'diagram-element') {
+      const currentSession = this.session;
+      requestAnimationFrame(() => {
+        if (this.session !== currentSession || this._commentRevealRequest !== revealRequest) return;
+        this.scrollSyncController?.suspendSync?.(800);
+        this.previewRenderer?.revealDiagramElement?.(anchor);
+      });
+      return;
+    }
+
+    this.session?.revealCommentAnchor?.(anchor);
+    requestAnimationFrame(() => {
+      if (this._commentRevealRequest !== revealRequest) return;
+      this.scrollSyncController?.suspendSync?.(0);
+      this.scrollSyncController?.syncPreviewToEditor?.();
+      this.previewRenderer?.revealPreviewAnchor?.(anchor);
+    });
+  },
+
   createCommentThread(payload) {
     const threadId = this.session?.createCommentThread(payload);
     if (threadId) {

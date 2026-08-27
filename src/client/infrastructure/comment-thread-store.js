@@ -435,14 +435,27 @@ export class CommentThreadStore {
       return {
         ...thread,
         anchor: {
+          anchorEndLine: normalizedAnchor.anchorEndLine,
+          anchorKind: normalizedAnchor.anchorKind,
+          anchorPoint: normalizedAnchor.anchorPoint,
+          anchorQuote: normalizedAnchor.anchorQuote,
+          anchorSnapshot: normalizedAnchor.anchorSnapshot,
+          anchorStartLine: normalizedAnchor.anchorStartLine,
+          ...(normalizedAnchor.diagramKey ? { diagramKey: normalizedAnchor.diagramKey } : {}),
+          elementId: normalizedAnchor.elementId,
+          endLine: normalizedAnchor.anchorEndLine,
           excerpt: normalizedAnchor.anchorQuote,
           kind: normalizedAnchor.anchorKind,
           quote: normalizedAnchor.anchorQuote,
+          startLine: normalizedAnchor.anchorStartLine,
         },
+        anchorEndLine: normalizedAnchor.anchorEndLine,
         anchorKind: normalizedAnchor.anchorKind,
         anchorPoint: normalizedAnchor.anchorPoint,
         anchorQuote: normalizedAnchor.anchorQuote,
         anchorSnapshot: normalizedAnchor.anchorSnapshot,
+        anchorStartLine: normalizedAnchor.anchorStartLine,
+        ...(normalizedAnchor.diagramKey ? { diagramKey: normalizedAnchor.diagramKey } : {}),
         elementId: normalizedAnchor.elementId,
       };
     }

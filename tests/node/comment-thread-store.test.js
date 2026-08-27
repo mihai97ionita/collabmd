@@ -123,10 +123,13 @@ test('resolveCommentThread returns a diagram-element thread without touching the
   store.bind({ commentThreads, ydoc: doc, ytext });
 
   commentThreads.push([createCommentThreadSharedType({
+    anchorEndLine: 48,
     anchorKind: 'diagram-element',
     anchorPoint: { x: 100, y: 50 },
     anchorQuote: 'Validate auth token',
     anchorSnapshot: { height: 40, text: 'Validate auth token', type: 'node', width: 120, x: 80, y: 30 },
+    anchorStartLine: 42,
+    diagramKey: 'mermaid-source-0',
     elementId: 'A1',
     id: 'thread-diag-1',
     messages: [{ body: 'Diagram comment', id: 'comment-diag-1', userName: 'Tester' }],
@@ -136,6 +139,11 @@ test('resolveCommentThread returns a diagram-element thread without touching the
   assert.equal(resolved.length, 1);
   assert.equal(resolved[0].anchorKind, 'diagram-element');
   assert.equal(resolved[0].elementId, 'A1');
+  assert.equal(resolved[0].anchor.anchorKind, 'diagram-element');
+  assert.equal(resolved[0].anchor.elementId, 'A1');
+  assert.equal(resolved[0].anchor.diagramKey, 'mermaid-source-0');
+  assert.equal(resolved[0].anchor.startLine, 42);
+  assert.equal(resolved[0].anchor.endLine, 48);
   assert.equal(resolved[0].anchor.quote, 'Validate auth token');
 });
 

@@ -358,9 +358,10 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
     const flowchartNodes = svg.querySelectorAll('g.node, g.edgePath, g.edgeLabel');
     flowchartNodes.forEach((node) => {
       const rawId = node.getAttribute('id') || '';
+      const stableId = rawId.replace(/^mermaid-\d+-/, '');
       const text = node.querySelector('text, foreignObject > div, g.label');
       const labelText = (text?.textContent ?? '').trim();
-      const tagValue = rawId || labelText || '';
+      const tagValue = stableId || labelText || '';
       if (tagValue) {
         node.setAttribute('data-mermaid-element-id', tagValue);
       }
