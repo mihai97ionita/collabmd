@@ -217,6 +217,10 @@ export class EditorSession {
     return this.commentThreadStore.editCommentMessage(threadId, messageId, body);
   }
 
+  resolveCommentThread(threadId) {
+    return this.commentThreadStore.resolveCommentThread(threadId);
+  }
+
   deleteCommentThread(threadId) {
     return this.commentThreadStore.deleteCommentThread(threadId);
   }

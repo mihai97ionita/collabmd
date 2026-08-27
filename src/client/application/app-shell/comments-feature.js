@@ -29,7 +29,7 @@ export const commentsFeature = {
   },
 
   resolveCommentThread(threadId) {
-    const didResolve = this.session?.deleteCommentThread(threadId);
+    const didResolve = this.session?.resolveCommentThread(threadId);
     if (didResolve) {
       this.scheduleCommentOverviewRefresh();
     }

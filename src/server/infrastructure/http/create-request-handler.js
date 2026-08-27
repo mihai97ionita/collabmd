@@ -79,6 +79,7 @@ export function createRequestHandler(
     basePath: config.basePath,
     publicBaseUrl: config.publicBaseUrl,
     reviewStore,
+    roomRegistry,
     vaultFileStore,
   });
 

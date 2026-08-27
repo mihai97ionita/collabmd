@@ -153,7 +153,7 @@ export class CommentThreadStore {
     return serializeCommentThreads(this.commentThreads)
       .map((thread) => this.resolveThread
         ? this.resolveThread(thread)
-        : this.resolveCommentThread(thread))
+        : this.resolveThreadForUi(thread))
       .filter(Boolean);
   }
 
@@ -362,6 +362,27 @@ export class CommentThreadStore {
     return true;
   }
 
+  resolveCommentThread(threadId) {
+    if (!this.canWrite() || !this.commentThreads || !this.ydoc) {
+      return false;
+    }
+
+    const thread = this.findSharedCommentThread(threadId);
+    if (!thread) {
+      return false;
+    }
+
+    const user = this.getLocalUser();
+    this.ydoc.transact(() => {
+      thread.set('resolvedAt', Date.now());
+      thread.set('resolvedByColor', user?.color ?? '');
+      thread.set('resolvedByName', user?.name ?? 'Anonymous');
+      thread.set('resolvedByPeerId', user?.peerId ?? '');
+    }, 'comment-thread-resolve');
+
+    return true;
+  }
+
   deleteCommentThread(threadId) {
     if (!this.canWrite() || !this.commentThreads || !this.ydoc) {
       return false;
@@ -374,7 +395,7 @@ export class CommentThreadStore {
 
     this.ydoc.transact(() => {
       this.commentThreads.delete(threadIndex, 1);
-    }, 'comment-thread-resolve');
+    }, 'comment-thread-delete');
 
     return true;
   }
@@ -399,7 +420,7 @@ export class CommentThreadStore {
     ));
   }
 
-  resolveCommentThread(thread) {
+  resolveThreadForUi(thread) {
     const state = this.getEditorState();
     if (!thread || !state || !this.ydoc) {
       return null;

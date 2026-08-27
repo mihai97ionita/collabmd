@@ -90,6 +90,23 @@ export class ReviewStore {
     }
   }
 
+  async writeProposal(reviewId, markdown) {
+    const meta = await this.readMeta(reviewId);
+    if (!meta) {
+      return { ok: false, error: 'Review not found', status: 404 };
+    }
+    const { absolute, error } = resolveVaultFilePath(this.vaultDir, meta.vaultPath);
+    if (!absolute) {
+      return { ok: false, error, status: 400 };
+    }
+    try {
+      await writeFile(absolute, markdown, 'utf-8');
+      return { ok: true, vaultPath: meta.vaultPath, updatedAt: Date.now() };
+    } catch (writeError) {
+      return { ok: false, error: writeError.message, status: 500 };
+    }
+  }
+
   async delete(reviewId) {
     const reviewDir = resolveReviewDir(this.vaultDir, reviewId);
     const meta = await this.readMeta(reviewId);

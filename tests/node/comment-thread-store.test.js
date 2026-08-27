@@ -148,3 +148,35 @@ test('editCommentMessage updates the body and records editedAt', () => {
   assert.equal(thread.messages[0].body, 'Updated body');
   assert.ok(Number.isFinite(thread.messages[0].editedAt), 'editedAt must be set');
 });
+
+test('resolveCommentThread marks the thread resolved without deleting it', () => {
+  const { commentThreads, store } = createStoreHarness();
+  seedThread(commentThreads);
+
+  assert.equal(store.resolveCommentThread('thread-1'), true);
+
+  const sharedThread = commentThreads.toArray().find((entry) => entry.get('id') === 'thread-1');
+  assert.ok(sharedThread, 'thread must still exist in the Yjs array (not deleted)');
+  assert.ok(Number.isFinite(sharedThread.get('resolvedAt')), 'resolvedAt must be set');
+  assert.equal(sharedThread.get('resolvedByName'), 'Tester');
+  assert.equal(sharedThread.get('resolvedByPeerId'), 'peer-1');
+});
+
+test('resolveCommentThread returns false for an unknown thread id', () => {
+  const { store } = createStoreHarness();
+  assert.equal(store.resolveCommentThread('does-not-exist'), false);
+});
+
+test('resolveCommentThread is excluded by default serialization but included with includeResolved-aware readers', () => {
+  const { commentThreads, store } = createStoreHarness();
+  seedThread(commentThreads);
+
+  store.resolveCommentThread('thread-1');
+
+  const defaultSerialized = serializeCommentThreads(commentThreads);
+  assert.equal(defaultSerialized.length, 0, 'serializeCommentThreads skips resolved threads by default');
+
+  const rawArray = commentThreads.toArray();
+  const sharedThread = rawArray.find((entry) => entry.get('id') === 'thread-1');
+  assert.ok(Number.isFinite(sharedThread.get('resolvedAt')), 'resolved thread is still present in the raw array');
+});

@@ -762,6 +762,7 @@ test('CollaborationRoom keeps Excalidraw comments in the collaboration sidecar',
     messages: [{
       body: 'Add the owner here',
       createdAt: 1,
+      editedAt: null,
       id: 'comment-diagram',
       peerId: '',
       reactions: [],

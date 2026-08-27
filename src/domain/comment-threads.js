@@ -326,8 +326,8 @@ export function createCommentThreadSharedType(record = {}) {
   return thread;
 }
 
-export function serializeCommentThread(thread) {
-  if (isResolvedThread(thread)) {
+export function serializeCommentThread(thread, { includeResolved = false } = {}) {
+  if (!includeResolved && isResolvedThread(thread)) {
     return null;
   }
 
@@ -363,7 +363,7 @@ export function serializeCommentThread(thread) {
   };
 }
 
-export function serializeCommentThreads(source) {
+export function serializeCommentThreads(source, { includeResolved = false } = {}) {
   const items = source instanceof Y.Array
     ? source.toArray()
     : Array.isArray(source)
@@ -371,7 +371,7 @@ export function serializeCommentThreads(source) {
       : [];
 
   return items
-    .map((thread) => serializeCommentThread(thread))
+    .map((thread) => serializeCommentThread(thread, { includeResolved }))
     .filter(Boolean);
 }
 
