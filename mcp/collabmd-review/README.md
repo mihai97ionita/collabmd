@@ -32,10 +32,10 @@ markdown:
 
 ```markdown
 ### Line 42 — "quoted excerpt"
-- **@imihai** (2026-08-26 14:03): This will OOM. Add LRU eviction.
+- **@reviewer** (2026-08-26 14:03): This will OOM. Add LRU eviction.
 
 ### Diagram <elementId> — "node label"
-- **@imihai** (2026-08-26 14:10): Missing the auth service here.
+- **@reviewer** (2026-08-26 14:10): Missing the auth service here.
 ```
 
 Edited messages carry `(edited)`. Resolved threads are excluded by default;
@@ -46,33 +46,37 @@ pass `include_resolved=true` to see them marked `(resolved)`.
 - A running CollabMD instance with the review API (`POST /api/review` and
   `GET /api/review/:id`) enabled. Default `http://localhost:1317`; override
   with the `COLLABMD_URL` env var.
-- `uv` on PATH (`/opt/homebrew/bin/uv`). The server is an inline uv script —
-  no venv needed; uv resolves `mcp[cli]` + `httpx` on first run.
+- `uv` on PATH. The server is an inline uv script — no venv needed; uv
+  resolves `mcp[cli]` + `httpx` on first run.
 
 ## Registration
 
-This repo copy is the source of truth. Sync it into the runtime location and
-register with Augment:
+This repo copy is the **single source of truth** — Augment launches the
+script directly from here, so you only edit in one place. Register with
+Augment (auggie CLI), replacing `<repo>` with your local checkout path:
 
 ```bash
-# 1. sync the script into the runtime tools dir
-mkdir -p ~/.augment/tools/collabmd-review
-cp mcp/collabmd-review/server.py ~/.augment/tools/collabmd-review/server.py
-
-# 2. register with Augment (auggie CLI)
 auggie mcp add-json collabmd-review '{
-  "command": "/opt/homebrew/bin/uv",
-  "args": ["run", "--script", "/Users/imihai/.augment/tools/collabmd-review/server.py"],
+  "command": "<uv-path>",
+  "args": ["run", "--script", "<repo>/mcp/collabmd-review/server.py"],
   "env": { "COLLABMD_URL": "http://localhost:1317" }
 }'
 
-# 3. verify
-auggie mcp list
+auggie mcp list        # verify
 ```
 
-The `~/.augment/tools/collabmd-review/server.py` copy is what Augment
-launches; the `mcp/collabmd-review/server.py` copy in this repo is what gets
-versioned and synced.
+Or run `./mcp/register.sh` from the repo root, which resolves the paths
+automatically.
+
+If you previously registered the `~/.augment/tools/collabmd-review/server.py`
+copy, remove it first so Augment doesn't hold two entries:
+
+```bash
+auggie mcp remove collabmd-review      # drop the old tools/ registration
+auggie mcp add-json collabmd-review '{ … }'   # re-add with the repo path
+```
+
+No `cp` step — the script runs in place from `mcp/collabmd-review/server.py`.
 
 ## Agent usage pattern
 

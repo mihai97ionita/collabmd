@@ -4,15 +4,11 @@ Local stdio MCP servers used by the CollabMD agent loop. Each server is a
 self-contained `uv` inline script (no venv, no install — `uv run --script`
 resolves deps on first launch).
 
-This directory is the **source of truth**. The runtime copies that Augment
-launches live under `~/.augment/tools/<name>/server.py`. Sync from here:
-
-```bash
-./mcp/sync.sh        # copies both servers into ~/.augment/tools/ and re-registers
-```
-
-(or run the `cp` + `auggie mcp add-json` commands documented in each server's
-README).
+This directory is the **single source of truth**. Augment launches the
+scripts directly from here — no copy is synced into `~/.augment/tools/`, so
+you only ever edit `mcp/<name>/server.py`. Register once (see each server's
+README or run `./mcp/register.sh`), and from then on Augment runs the script
+in place.
 
 ## Servers
 
@@ -37,18 +33,18 @@ agent
 
 ## Requirements
 
-- `uv` on PATH (`/opt/homebrew/bin/uv`).
-- A running CollabMD instance. The launchd agent
-  (`~/Library/LaunchAgents/com.imihai.collabmd.plist`) serves it at
-  `http://localhost:1317` on login. Override with `COLLABMD_URL` for the
-  review server.
+- `uv` on PATH.
+- A running CollabMD instance serving the review API at `http://localhost:1317`
+  (override with `COLLABMD_URL` for the review server). The repo includes a
+  launchd agent setup for macOS that auto-starts CollabMD on login; see
+  `AGENTS.md` for the plist path and management commands.
 
 ## Files
 
 ```
 mcp/
 ├── README.md                     # this file
-├── sync.sh                       # sync + re-register helper
+├── register.sh                   # register both servers with auggie (run from repo path)
 ├── collabmd-review/
 │   ├── server.py                 # post_review, get_review
 │   └── README.md

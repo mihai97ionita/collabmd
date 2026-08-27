@@ -317,16 +317,17 @@ self-contained `uv` inline script (no venv needed).
   block/poll used to wait for the CollabMD server to be ready after a
   restart (e.g. `wait_for("port_open", {host,port=1317}, 60)`).
 
-The repo copies are the source of truth. The runtime copies that
-Augment launches live under `~/.augment/tools/<name>/server.py`. Sync
-with:
+**Single source of truth:** Augment launches the scripts directly from
+this repo — no copy is synced into `~/.augment/tools/`, so you only ever
+edit `mcp/<name>/server.py`. Register once with:
 
 ```bash
-./mcp/sync.sh        # copies both servers into ~/.augment/tools/ and re-registers
+./mcp/register.sh     # registers both servers with auggie, pointing at repo paths
 ```
 
-(or follow the manual `cp` + `auggie mcp add-json` steps in each server's
-README). Verify with `auggie mcp list`.
+If `~/.augment/settings.json` still points at the old `~/.augment/tools/`
+copies (from before this change), `register.sh` removes the stale entries
+first and re-adds with the repo paths. Verify with `auggie mcp list`.
 
 The `collabmd-review` server reads `COLLABMD_URL` (default
 `http://localhost:1317`) and points at the launchd-managed instance.

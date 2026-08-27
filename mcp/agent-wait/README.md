@@ -41,20 +41,31 @@ wait_for(condition="file_exists", params={"path": "/tmp/build-done.marker"}, tim
 
 ## Registration
 
-This repo copy is the source of truth. Sync it into the runtime location and
-register with Augment:
+This repo copy is the **single source of truth** — Augment launches the
+script directly from here, so you only edit in one place. Register with
+Augment (auggie CLI), replacing `<repo>` with your local checkout path:
 
 ```bash
-mkdir -p ~/.augment/tools/agent-wait
-cp mcp/agent-wait/server.py ~/.augment/tools/agent-wait/server.py
-
 auggie mcp add-json agent-wait '{
-  "command": "/opt/homebrew/bin/uv",
-  "args": ["run", "--script", "/Users/imihai/.augment/tools/agent-wait/server.py"]
+  "command": "<uv-path>",
+  "args": ["run", "--script", "<repo>/mcp/agent-wait/server.py"]
 }'
 
 auggie mcp list
 ```
+
+Or run `./mcp/register.sh` from the repo root, which resolves the paths
+automatically.
+
+If you previously registered the `~/.augment/tools/agent-wait/server.py`
+copy, remove it first:
+
+```bash
+auggie mcp remove agent-wait
+auggie mcp add-json agent-wait '{ … }'
+```
+
+No `cp` step — the script runs in place from `mcp/agent-wait/server.py`.
 
 ## Files
 
