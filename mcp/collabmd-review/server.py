@@ -141,6 +141,9 @@ def get_review(review_id: str, secret: str, include_resolved: bool = False) -> s
       - Line-anchored:      `### Line 42 — "quoted excerpt"`
       - Text-anchored:      `### Lines 8-14 — "quoted excerpt"`
       - Diagram-element:    `### Diagram <elementId> — "quoted label"`
+    Each thread also carries an HTML comment with its id:
+      `<!-- thread-id: <id> -->`
+    Use that id as the `thread_id` argument to reply_to_comment().
     Edited messages carry an `(edited)` marker.
 
     Args:
@@ -218,14 +221,14 @@ def reply_to_comment(review_id: str, secret: str, thread_id: str, body: str) -> 
     proposal. The reply is appended to the thread's messages and persists in
     the comment sidecar; it shows up on the next get_review() call.
 
-    Find thread_id values by calling get_review() with include_resolved=true
-    and inspecting the ## Review Comments appendix — each thread block starts
-    with `### Line N` or `### Diagram <elementId>`. The thread_id is the
-    `id` field of the thread (not currently rendered in the markdown; you can
-    also read it from the sidecar JSON directly if needed).
+    When the human has the review open in the browser, the reply is routed
+    through the live collaboration room and appears in real time — no need to
+    wait for the human to close the tab. When no browser session is active,
+    the reply is written directly to the sidecar.
 
-    If the browser still has the file open in a collaboration session, the
-    server returns 409 — wait for the human to close it and retry.
+    Find thread_id values by calling get_review() with include_resolved=true
+    and looking for the `<!-- thread-id: <id> -->` HTML comment under each
+    thread heading in the ## Review Comments appendix.
 
     Args:
         review_id: The reviewId returned by post_review().
@@ -235,7 +238,6 @@ def reply_to_comment(review_id: str, secret: str, thread_id: str, body: str) -> 
 
     Returns:
         JSON string: { ok, messageId, threadId } on success.
-        On 409: { "error": "...", "body": "...", "status": 409 } — retry.
     """
     if not review_id or not secret or not thread_id:
         return json.dumps({"error": "review_id, secret, and thread_id are required"})

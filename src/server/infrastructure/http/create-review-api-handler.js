@@ -256,25 +256,10 @@ async function handleReviewReply(context, req, res, requestUrl) {
       return true;
     }
 
-    if (hasActiveCollaborationSession(context.roomRegistry, meta.vaultPath)) {
-      jsonResponse(req, res, 409, {
-        error: 'Review file is open in a browser collaboration session',
-        vaultPath: meta.vaultPath,
-      });
-      return true;
-    }
-
     const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
     const normalizedBody = normalizeCommentBody(body?.body);
     if (!normalizedBody) {
       jsonResponse(req, res, 422, { error: 'Missing or empty "body" in request body' });
-      return true;
-    }
-
-    const rawThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
-    const threadIndex = rawThreads.findIndex((thread) => thread?.id === target.threadId);
-    if (threadIndex < 0) {
-      jsonResponse(req, res, 404, { error: 'Comment thread not found' });
       return true;
     }
 
@@ -288,6 +273,54 @@ async function handleReviewReply(context, req, res, requestUrl) {
       userColor: '',
       userName: AGENT_USER_NAME,
     };
+
+    // Route through the live Yjs room when a browser session is open so the
+    // reply appears in real time and the room's debounced persist won't
+    // clobber it. Fall back to a direct sidecar write when no room is active.
+    const room = context.roomRegistry?.get?.(meta.vaultPath);
+    if (room && !room.isDeleted?.() && room.clients.size > 0) {
+      const liveThreads = room.getLiveCommentThreads();
+      const threadIndex = liveThreads.findIndex((thread) => thread?.id === target.threadId);
+      if (threadIndex < 0) {
+        jsonResponse(req, res, 404, { error: 'Comment thread not found' });
+        return true;
+      }
+
+      const mergedThreads = liveThreads.map((thread, index) => (
+        index === threadIndex
+          ? { ...thread, messages: [...(thread.messages ?? []), message] }
+          : thread
+      ));
+
+      const liveContent = room.getLiveContent() ?? '';
+      const applyResult = await room.applyExternalContent(liveContent, {
+        commentThreads: mergedThreads,
+        replaceCommentThreads: true,
+      });
+      if (!applyResult?.ok) {
+        jsonResponse(req, res, 409, {
+          error: applyResult?.reason === 'room-unavailable'
+            ? 'Review collaboration session became unavailable'
+            : 'Failed to apply reply to live session',
+          vaultPath: meta.vaultPath,
+        });
+        return true;
+      }
+
+      jsonResponse(req, res, 200, {
+        ok: true,
+        messageId: message.id,
+        threadId: target.threadId,
+      });
+      return true;
+    }
+
+    const rawThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
+    const threadIndex = rawThreads.findIndex((thread) => thread?.id === target.threadId);
+    if (threadIndex < 0) {
+      jsonResponse(req, res, 404, { error: 'Comment thread not found' });
+      return true;
+    }
 
     const updatedThreads = rawThreads.map((thread, index) => (
       index === threadIndex

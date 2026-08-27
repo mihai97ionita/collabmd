@@ -142,3 +142,22 @@ test('serializeReviewToMarkdown does not append (edited) to messages without edi
   const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
   assert.ok(!result.includes('(edited)'), 'no edited marker for unedited messages');
 });
+
+test('serializeReviewToMarkdown renders the thread id as an HTML comment so callers can reply', () => {
+  const thread = makeThread({ id: 'thread-reply-target' });
+  const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
+  assert.ok(
+    result.includes('<!-- thread-id: thread-reply-target -->'),
+    'thread id must appear as an HTML comment after the heading',
+  );
+  const headingIndex = result.indexOf('### Line 42');
+  const idIndex = result.indexOf('<!-- thread-id: thread-reply-target -->');
+  assert.ok(headingIndex > -1 && idIndex > -1);
+  assert.ok(headingIndex < idIndex, 'thread id must come after the heading');
+});
+
+test('serializeReviewToMarkdown omits the thread id comment when the thread has no id', () => {
+  const thread = makeThread({ id: '' });
+  const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
+  assert.ok(!result.includes('<!-- thread-id'), 'no thread id comment when id is empty');
+});

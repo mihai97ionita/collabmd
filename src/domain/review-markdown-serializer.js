@@ -55,14 +55,25 @@ function renderMessage(message) {
   return `- **@${author}**${dateSuffix}${editedSuffix}: ${body}`;
 }
 
+function renderThreadId(thread) {
+  const id = typeof thread.id === 'string' ? thread.id : '';
+  return id ? `<!-- thread-id: ${id} -->` : '';
+}
+
 function renderThread(thread) {
   const heading = renderThreadHeading(thread);
+  const idComment = renderThreadId(thread);
   const messages = Array.isArray(thread.messages) ? thread.messages : [];
   const renderedMessages = messages
     .slice()
     .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
     .map(renderMessage);
-  return [heading, ...renderedMessages].join('\n\n');
+  const parts = [heading];
+  if (idComment) {
+    parts.push(idComment);
+  }
+  parts.push(...renderedMessages);
+  return parts.join('\n\n');
 }
 
 function filterThreads(threads, includeResolved) {

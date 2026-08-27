@@ -4,7 +4,22 @@ import { request } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { startTestServer } from '../helpers/test-server.js';
+import WebSocket from 'ws';
+import * as Y from 'yjs';
+
+import { startTestServer, waitForCondition } from '../helpers/test-server.js';
+import {
+  applySyncMessageToDoc,
+  getMessageType,
+  syncClientDocWithRoom,
+  waitForOpen,
+} from '../helpers/collaboration-protocol.js';
+import { MSG_SYNC } from '../../../src/server/domain/collaboration/protocol.js';
+import { serializeCommentThreads } from '../../../src/domain/comment-threads.js';
+
+const normalizeMessagePayload = (payload) => (
+  payload instanceof Buffer ? new Uint8Array(payload) : new Uint8Array(payload)
+);
 
 function httpRequest(url, { method = 'GET', headers = {}, body } = {}) {
   return new Promise((resolveRequest, rejectRequest) => {
@@ -490,6 +505,108 @@ test('POST /api/review/:id/threads/:threadId/reply rejects an empty body with 42
       },
     );
     assert.equal(replyResponse.statusCode, 422);
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /api/review/:id/threads/:threadId/reply routes through the live room when a browser session is open', async () => {
+  const server = await startTestServer();
+  try {
+    const proposal = '# Plan\n\nDo the thing on line 2.\n';
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: proposal }),
+    });
+    const created = JSON.parse(createResponse.body);
+
+    const commentPath = join(server.vaultDir, '.collabmd/comments', `${created.vaultPath}.json`);
+    await mkdir(dirname(commentPath), { recursive: true });
+    await writeFile(commentPath, JSON.stringify({
+      version: 1,
+      threads: [{
+        id: 'thread-live-1',
+        anchorKind: 'line',
+        anchorStartLine: 2,
+        anchorEndLine: 2,
+        anchorStart: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorEnd: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorQuote: 'Do the thing on line 2.',
+        createdAt: Date.parse('2026-08-26T14:00:00Z'),
+        createdByName: 'reviewer',
+        createdByColor: '',
+        createdByPeerId: 'peer-1',
+        resolvedAt: null,
+        messages: [{
+          id: 'comment-original',
+          body: 'This is ambiguous.',
+          createdAt: Date.parse('2026-08-26T14:01:00Z'),
+          editedAt: null,
+          userName: 'reviewer',
+          userColor: '',
+          peerId: 'peer-1',
+          reactions: [],
+        }],
+      }],
+    }), 'utf-8');
+
+    // Connect a WebSocket client so the collaboration room is live with
+    // clients > 0, then sync the client doc with the room to hydrate the
+    // comments from disk.
+    const socket = new WebSocket(server.wsUrl(created.vaultPath));
+    await waitForOpen(socket);
+    const clientDoc = new Y.Doc();
+    await syncClientDocWithRoom(socket, clientDoc);
+
+    // Keep a persistent handler so the client doc receives the broadcast
+    // update when the agent reply is applied to the room.
+    const liveUpdateHandler = (payload) => {
+      const data = normalizeMessagePayload(payload);
+      if (getMessageType(data) !== MSG_SYNC) {
+        return;
+      }
+      applySyncMessageToDoc(data, clientDoc, socket);
+    };
+    socket.on('message', liveUpdateHandler);
+
+    // Post the reply via the HTTP API while the session is live.
+    const replyResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-live-1/reply?secret=${encodeURIComponent(created.secret)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: 'Good point — reworded in v2.' }),
+      },
+    );
+    assert.equal(replyResponse.statusCode, 200);
+    const replied = JSON.parse(replyResponse.body);
+    assert.equal(replied.ok, true);
+    assert.equal(replied.threadId, 'thread-live-1');
+
+    // Wait for the room to broadcast the update to our client doc, then
+    // assert the agent reply is visible in the live Yjs state.
+    await waitForCondition(() => {
+      const threads = serializeCommentThreads(clientDoc.getArray('comments'));
+      return threads.some((thread) => thread?.id === 'thread-live-1'
+        && thread.messages?.some((message) => message.userName === 'Agent'
+          && message.body === 'Good point — reworded in v2.'));
+    });
+
+    // The live room state must also reflect the reply.
+    const room = server.server.roomRegistry.get(created.vaultPath);
+    assert.ok(room, 'room must exist for the review file');
+    const liveThreads = room.getLiveCommentThreads();
+    const liveThread = liveThreads.find((thread) => thread?.id === 'thread-live-1');
+    assert.ok(liveThread, 'live room must contain the thread');
+    assert.ok(
+      liveThread.messages.some((message) => message.userName === 'Agent'
+        && message.body === 'Good point — reworded in v2.'),
+      'live room must contain the agent reply',
+    );
+
+    socket.off('message', liveUpdateHandler);
+    socket.close();
   } finally {
     await server.close();
   }
