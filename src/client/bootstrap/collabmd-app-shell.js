@@ -18,6 +18,7 @@ import { uiFeatureShellMethods } from '../application/app-shell/ui-feature-shell
 import { uiFeatureSidebarMethods } from '../application/app-shell/ui-feature-sidebar.js';
 import { uiFeatureTabActivityMethods } from '../application/app-shell/ui-feature-tab-activity.js';
 import { uiFeatureToolbarMethods } from '../application/app-shell/ui-feature-toolbar.js';
+import { uiFeatureReviewControlMethods } from '../application/app-shell/ui-feature-review-control.js';
 import { workspaceFeature } from '../application/app-shell/workspace-feature.js';
 import { LOBBY_CHAT_MESSAGE_MAX_LENGTH, LobbyPresence } from '../infrastructure/lobby-presence.js';
 import { BrowserPreferencesPort } from '../infrastructure/browser-preferences-port.js';
@@ -68,6 +69,7 @@ const APP_SHELL_FEATURES = [
     ...uiFeatureIdentityMethods,
     ...uiFeatureToolbarMethods,
     ...uiFeatureTabActivityMethods,
+    ...uiFeatureReviewControlMethods,
   },
   workspaceFeature,
 ];
@@ -96,6 +98,7 @@ export class CollabMdAppShell {
     this.followedUserClientId = null;
     this.gitRepoAvailable = false;
     this.globalUsers = [];
+    this.isReviewControlRelinquished = false;
     this.isTabActive = false;
     this.presencePanelOpen = false;
     this.sessionLoadToken = 0;
@@ -529,6 +532,10 @@ export class CollabMdAppShell {
         this.elements.editorPage?.classList.remove('hidden');
         this.elements.diffPage?.classList.add('hidden');
         this.clearInitialFileBootstrap();
+        // Opening a file (re)creates a collaboration session, so clear any
+        // leftover relinquished state from a prior review file.
+        this.isReviewControlRelinquished = false;
+        this.hideReviewControlOverlay?.();
       },
       onConnectionChange: (state) => this.handleConnectionChange(state),
       onContentChange: ({ isBase, isHtml, isMermaid, isPlantUml, isStructurizrWorkspace }) => {
@@ -603,6 +610,7 @@ export class CollabMdAppShell {
         this.syncCommentChrome(filePath);
         this.syncFileHistoryButton({ filePath, mode: 'editor' });
         this.syncReviewFileChangesButton({ filePath, mode: 'editor' });
+        this.syncReviewRelinquishButton({ filePath, mode: 'editor' });
         if (this.elements.activeFileName) {
           this.elements.activeFileName.textContent = displayName;
         }
