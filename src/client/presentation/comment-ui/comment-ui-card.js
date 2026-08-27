@@ -37,9 +37,13 @@ function openComposerForDiagramElement(anchor) {
 
   this.selectionAnchor = anchor;
   this.reactionPicker = null;
-  const sourceRect = this.previewElement?.querySelector?.(
-    `[data-mermaid-element-id="${CSS.escape(anchor.elementId ?? '')}"]`,
-  )?.getBoundingClientRect?.() ?? null;
+  const escapedId = typeof CSS !== 'undefined' && CSS.escape
+    ? CSS.escape(anchor.elementId ?? '')
+    : (anchor.elementId ?? '').replace(/["\\]/g, '\\$&');
+  const mermaidNode = this.previewElement?.querySelector?.(
+    `[data-mermaid-element-id="${escapedId}"]`,
+  );
+  const sourceRect = mermaidNode?.getBoundingClientRect?.() ?? null;
   this.activeCard = {
     anchor,
     composerDraft: null,
@@ -49,6 +53,7 @@ function openComposerForDiagramElement(anchor) {
     replyThreadId: null,
     sourceRect,
   };
+  this.onRevealAnchor?.(anchor);
   this.render();
 }
 
@@ -92,6 +97,7 @@ function openThreadGroup(group, { anchor, origin, sourceRect }) {
     replyThreadId: null,
     sourceRect,
   };
+  this.onRevealAnchor?.(anchor);
   this.renderDrawer();
   this.renderCard();
 }
@@ -102,6 +108,7 @@ function closeCard() {
   this.activeCard = null;
   this.pendingCardFocusElement = null;
   this.reactionPicker = null;
+  this.onRevealAnchor?.(null);
   this.renderCard();
   if (wasPreviewComposer) {
     this.clearPreviewSelection();
@@ -778,6 +785,7 @@ function positionCard(card) {
   const cardRect = card.getBoundingClientRect();
   const fallbackLeft = clamp((viewportWidth - cardRect.width) / 2, 16, viewportWidth - cardRect.width - 16);
   const fallbackTop = clamp((viewportHeight - cardRect.height) / 4, 16, viewportHeight - cardRect.height - 16);
+  const revealClearance = 48;
 
   let left = fallbackLeft;
   let top = fallbackTop;
@@ -788,9 +796,10 @@ function positionCard(card) {
       16,
       viewportWidth - Math.min(cardRect.width, COMMENT_CARD_WIDTH) - 16,
     );
-    top = sourceRect.bottom + COMMENT_CARD_OFFSET;
+    top = sourceRect.bottom + revealClearance;
     if (top + cardRect.height > viewportHeight - 16) {
-      top = Math.max(sourceRect.top - cardRect.height - COMMENT_CARD_OFFSET, 16);
+      const aboveTop = sourceRect.top - cardRect.height - revealClearance;
+      top = aboveTop > 16 ? aboveTop : Math.max(sourceRect.bottom + COMMENT_CARD_OFFSET, 16);
     }
   }
 

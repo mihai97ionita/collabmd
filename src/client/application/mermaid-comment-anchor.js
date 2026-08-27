@@ -1,7 +1,8 @@
 const MERMAID_NODE_SELECTOR = 'g.node, g.edgePath, g.edgeLabel';
+const DIAGRAM_ELEMENT_SELECTOR = `${MERMAID_NODE_SELECTOR}, [data-mermaid-element-id]`;
 
 function findMermaidAncestor(element) {
-  return element?.closest?.('.mermaid-render-node, .mermaid') ?? null;
+  return element?.closest?.('.mermaid-render-node, .mermaid, .plantuml-shell') ?? null;
 }
 
 function findDiagramSvg(scopeElement) {
@@ -9,13 +10,12 @@ function findDiagramSvg(scopeElement) {
     return null;
   }
   const svg = scopeElement.querySelector('svg');
-  if (!(svg instanceof SVGSVGElement)) {
-    return null;
-  }
-  if (svg.querySelector(MERMAID_NODE_SELECTOR)) {
+  if (svg instanceof SVGSVGElement) {
     return svg;
   }
-  const nested = scopeElement.querySelector('.mermaid-frame svg, .diagram-preview-frame svg');
+  const nested = scopeElement.querySelector(
+    '.mermaid-frame svg, .plantuml-frame svg, .diagram-preview-frame svg',
+  );
   if (nested instanceof SVGSVGElement) {
     return nested;
   }
@@ -23,7 +23,7 @@ function findDiagramSvg(scopeElement) {
 }
 
 function findMermaidElementTarget(element) {
-  return element?.closest?.(MERMAID_NODE_SELECTOR) ?? null;
+  return element?.closest?.(DIAGRAM_ELEMENT_SELECTOR) ?? null;
 }
 
 function getSvgUserSpaceRect(svg, clientX, clientY) {
@@ -38,14 +38,25 @@ function getSvgUserSpaceRect(svg, clientX, clientY) {
 }
 
 function getElementBBoxInSvgUserSpace(target, _svg) {
-  const bbox = target.getBBox?.();
-  if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y)) {
+  try {
+    const bbox = target.getBBox?.();
+    if (!bbox || !Number.isFinite(bbox.x) || !Number.isFinite(bbox.y)) {
+      return null;
+    }
+    if (bbox.width === 0 && bbox.height === 0) {
+      return null;
+    }
+    return { height: bbox.height, width: bbox.width, x: bbox.x, y: bbox.y };
+  } catch {
     return null;
   }
-  return { height: bbox.height, width: bbox.width, x: bbox.x, y: bbox.y };
 }
 
 function readElementId(target) {
+  const dataId = target.getAttribute('data-mermaid-element-id');
+  if (dataId && dataId.trim()) {
+    return dataId.trim();
+  }
   const id = target.getAttribute('id');
   if (!id) {
     return null;
@@ -70,6 +81,38 @@ function classifyElementType(target) {
   }
   if (target.classList.contains('edgeLabel')) {
     return 'edge-label';
+  }
+  const dataEt = target.getAttribute('data-et') || '';
+  if (dataEt === 'message') {
+    return 'edge';
+  }
+  if (dataEt === 'life-line' || dataEt === 'participant') {
+    return 'node';
+  }
+  if (target.classList.contains('bar')) {
+    return 'node';
+  }
+  if (target.classList.contains('taskText') || target.classList.contains('taskTextOutsideRight') || target.classList.contains('taskTextOutsideLeft')) {
+    return 'edge-label';
+  }
+  if (target.classList.contains('commitPoint')) {
+    return 'node';
+  }
+  if (target.classList.contains('arrow')) {
+    return 'edge';
+  }
+  if (target.classList.contains('branch')) {
+    return 'edge';
+  }
+  if (target.classList.contains('blockNode')) {
+    return 'node';
+  }
+  const id = target.getAttribute('id') || '';
+  if (id.startsWith('link_') || target.classList.contains('link')) {
+    return 'edge';
+  }
+  if (id.startsWith('elem_') || id.startsWith('ent')) {
+    return 'node';
   }
   return 'node';
 }

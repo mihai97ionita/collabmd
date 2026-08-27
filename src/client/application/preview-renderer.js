@@ -205,6 +205,112 @@ export class PreviewRenderer {
     this.mermaidHydrator.applyTheme(theme);
   }
 
+  clearPreviewReveal() {
+    if (!this.previewElement) {
+      return;
+    }
+    this.previewElement.querySelectorAll('.preview-comment-reveal').forEach((el) => {
+      el.classList.remove('preview-comment-reveal');
+    });
+  }
+
+  scrollIntoPreviewContainer(element, gap = 40) {
+    if (!this.previewContainer || !element) {
+      return;
+    }
+    const elementRect = element.getBoundingClientRect();
+    const containerRect = this.previewContainer.getBoundingClientRect();
+    const offsetTop = elementRect.top - containerRect.top;
+    const offsetBottom = elementRect.bottom - containerRect.bottom;
+    if (offsetTop < 0 || offsetBottom > 0) {
+      const delta = offsetTop < 0
+        ? offsetTop - gap
+        : offsetBottom + gap;
+      this.previewContainer.scrollBy({ top: delta, behavior: 'smooth' });
+    }
+  }
+
+  revealPreviewAnchor(anchor) {
+    if (!this.previewElement) {
+      return false;
+    }
+
+    const kind = anchor?.anchorKind || anchor?.kind || 'line';
+    if (kind === 'diagram-element') {
+      return this.revealDiagramElement(anchor?.elementId ?? anchor?.elementId);
+    }
+
+    const startLine = Math.round(Number(anchor?.startLine ?? anchor?.anchorStartLine ?? 1));
+    if (!Number.isFinite(startLine)) {
+      return false;
+    }
+
+    this.clearPreviewReveal();
+
+    const blocks = Array.from(this.previewElement.querySelectorAll('[data-source-line]'));
+    let target = null;
+    for (const block of blocks) {
+      const blockStart = Number.parseInt(block.getAttribute('data-source-line') || '', 10);
+      const blockEnd = Number.parseInt(block.getAttribute('data-source-line-end') || '', 10) || blockStart;
+      if (!Number.isFinite(blockStart)) {
+        continue;
+      }
+      if (blockStart <= startLine && blockEnd >= startLine) {
+        target = block;
+        break;
+      }
+    }
+
+    if (!target) {
+      return false;
+    }
+
+    target.classList.add('preview-comment-reveal');
+    this.scrollIntoPreviewContainer(target);
+    return true;
+  }
+
+  revealDiagramElement(elementId, attempts = 0) {
+    if (!this.previewElement || !elementId) {
+      return false;
+    }
+
+    this.clearPreviewReveal();
+
+    const escapedId = typeof CSS !== 'undefined' && CSS.escape
+      ? CSS.escape(String(elementId))
+      : String(elementId).replace(/["\\]/g, '\\$&');
+    const mermaidNode = this.previewElement.querySelector(
+      `[data-mermaid-element-id="${escapedId}"]`,
+    );
+
+    if (mermaidNode) {
+      mermaidNode.classList.add('preview-comment-reveal');
+      const shell = mermaidNode.closest('.mermaid-shell, .plantuml-shell');
+      if (shell) {
+        this.scrollIntoPreviewContainer(shell);
+      }
+      return true;
+    }
+
+    if (attempts < 8) {
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          resolve(this.revealDiagramElement(elementId, attempts + 1));
+        }, 150);
+      });
+    }
+
+    const shell = this.previewElement.querySelector('.mermaid-shell, .plantuml-shell');
+    if (shell) {
+      shell.classList.add('preview-comment-reveal');
+      this.scrollIntoPreviewContainer(shell);
+      return true;
+    }
+
+    return false;
+  }
+
   queueRender() {
     const markdownText = this.getContent();
     this.renderScheduler.cancel();

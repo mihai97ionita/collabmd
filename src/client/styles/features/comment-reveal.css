@@ -1,0 +1,51 @@
+/* ===== COMMENT CONTEXT REVEAL ===== */
+/* Highlight band shown on the anchored line/block when a comment card opens. */
+
+.cm-comment-reveal-line {
+  background-color: var(--color-comment-reveal-bg);
+  box-shadow: inset 3px 0 0 var(--color-comment-reveal-accent);
+  transition: background-color 200ms ease-out, box-shadow 200ms ease-out;
+  animation: comment-reveal-pulse 1200ms ease-out;
+}
+
+.preview-comment-reveal {
+  outline: 2px solid var(--color-comment-reveal-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+  background-color: var(--color-comment-reveal-bg);
+  transition: outline-color 200ms ease-out, background-color 200ms ease-out;
+  animation: comment-reveal-pulse 1200ms ease-out;
+}
+
+g.node.preview-comment-reveal,
+g.edgePath.preview-comment-reveal,
+g.edgeLabel.preview-comment-reveal,
+[data-mermaid-element-id].preview-comment-reveal {
+  outline: none;
+  filter: drop-shadow(0 0 4px var(--color-comment-reveal-accent));
+}
+
+.mermaid-shell.preview-comment-reveal,
+.plantuml-shell.preview-comment-reveal {
+  outline-offset: 4px;
+}
+
+@keyframes comment-reveal-pulse {
+  0% {
+    background-color: var(--color-comment-reveal-pulse);
+  }
+  60% {
+    background-color: var(--color-comment-reveal-bg);
+  }
+  100% {
+    background-color: var(--color-comment-reveal-bg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-comment-reveal-line,
+  .preview-comment-reveal {
+    animation: none;
+    transition: none;
+  }
+}

@@ -18,6 +18,7 @@ export class CommentUiController {
     onNavigateToLine,
     onReplyToThread,
     onEditMessage,
+    onRevealAnchor,
     onToggleReaction,
     onResolveThread,
     previewContainer,
@@ -35,6 +36,7 @@ export class CommentUiController {
     this.onNavigateToLine = onNavigateToLine;
     this.onReplyToThread = onReplyToThread;
     this.onEditMessage = onEditMessage;
+    this.onRevealAnchor = onRevealAnchor;
     this.onToggleReaction = onToggleReaction;
     this.onResolveThread = onResolveThread;
     this.previewContainer = previewContainer;

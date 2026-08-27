@@ -332,6 +332,7 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       renderedDiagram.remove();
       return;
     }
+    this.tagDiagramElements(svg);
     const { width: baseWidth, height: baseHeight } = normalizeMermaidSvg(svg);
 
     const exportFileNames = () => createDiagramExportFileNames({
@@ -351,6 +352,131 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       sourceSelector: '.mermaid-source',
     });
     shell._diagramRenderedSource = renderedSource;
+  }
+
+  tagDiagramElements(svg) {
+    const flowchartNodes = svg.querySelectorAll('g.node, g.edgePath, g.edgeLabel');
+    flowchartNodes.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const text = node.querySelector('text, foreignObject > div, g.label');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = rawId || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const sequenceParticipants = svg.querySelectorAll('g[data-et="participant"]');
+    sequenceParticipants.forEach((node) => {
+      const dataId = node.getAttribute('data-id') || '';
+      const text = node.querySelector('text');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = dataId || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const sequenceLifelines = svg.querySelectorAll('line[data-et="life-line"]');
+    sequenceLifelines.forEach((node) => {
+      const dataId = node.getAttribute('data-id') || '';
+      const rawId = node.getAttribute('id') || '';
+      const tagValue = dataId || rawId || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const sequenceMessages = svg.querySelectorAll(
+      'line[data-et="message"], path[data-et="message"]',
+    );
+    sequenceMessages.forEach((node) => {
+      const dataId = node.getAttribute('data-id') || '';
+      const dataFrom = node.getAttribute('data-from') || '';
+      const dataTo = node.getAttribute('data-to') || '';
+      const tagValue = dataId || `${dataFrom}-to-${dataTo}` || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const sequenceMessageTexts = svg.querySelectorAll('text.messageText');
+    sequenceMessageTexts.forEach((node) => {
+      const text = (node.textContent ?? '').trim();
+      const tagValue = text || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const sequenceActivations = svg.querySelectorAll('rect[class*="activation"]');
+    sequenceActivations.forEach((node) => {
+      const parentG = node.closest('g[data-et="participant"], g[data-et="life-line"]');
+      const parentId = parentG?.getAttribute('data-id') || parentG?.getAttribute('id') || '';
+      const tagValue = parentId || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const ganttTasks = svg.querySelectorAll('rect.bar');
+    ganttTasks.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const tagValue = rawId || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const ganttTaskTexts = svg.querySelectorAll('text.taskText, text.taskTextOutsideRight, text.taskTextOutsideLeft');
+    ganttTaskTexts.forEach((node) => {
+      const text = (node.textContent ?? '').trim();
+      const tagValue = text || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const gitCommits = svg.querySelectorAll('circle.commitPoint');
+    gitCommits.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const title = node.querySelector('title')?.textContent?.trim() ?? '';
+      const tagValue = rawId || title || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const gitArrows = svg.querySelectorAll('path.arrow');
+    gitArrows.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const title = node.querySelector('title')?.textContent?.trim() ?? '';
+      const tagValue = rawId || title || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const gitBranches = svg.querySelectorAll('line.branch');
+    gitBranches.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const title = node.querySelector('title')?.textContent?.trim() ?? '';
+      const tagValue = rawId || title || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const blockNodes = svg.querySelectorAll('g.blockNode');
+    blockNodes.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const text = node.querySelector('text');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = rawId || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
   }
 
 }

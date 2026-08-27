@@ -29,6 +29,7 @@
 @import './features/comment-overlays.css';
 @import './features/comment-card.css';
 @import './features/comment-markdown.css';
+@import './features/comment-reveal.css';
 @import './features/backlinks.css';
 @import './features/outline.css';
 @import './layout/view-modes.css';

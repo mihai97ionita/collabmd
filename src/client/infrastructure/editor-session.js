@@ -245,6 +245,14 @@ export class EditorSession {
     return this.viewAdapter.scrollToLine(lineNumber, viewportRatio);
   }
 
+  revealCommentAnchor(anchor) {
+    return this.viewAdapter.revealCommentAnchor(anchor);
+  }
+
+  clearCommentReveal() {
+    return this.viewAdapter.clearCommentReveal();
+  }
+
   revealSearchMatch(match) {
     return this.viewAdapter.revealSearchMatch(match);
   }

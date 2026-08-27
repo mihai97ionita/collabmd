@@ -178,6 +178,7 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
       throw new Error('Renderer returned invalid SVG');
     }
 
+    this.tagDiagramElements(svg);
     const { width: baseWidth, height: baseHeight } = getSvgSize(svg);
     const exportSvgMarkup = () => exportSvgMarkupFromElement(svg);
     const exportFileNames = () => createDiagramExportFileNames({
@@ -201,6 +202,32 @@ export class PlantUmlPreviewHydrator extends DiagramPreviewHydrator {
         this.enqueueShell(shell, { prioritize: true });
       },
       sourceSelector: '.plantuml-source',
+    });
+  }
+
+  tagDiagramElements(svg) {
+    const components = svg.querySelectorAll('g[id^="elem_"], g[id^="ent"], g[title]');
+    components.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const title = node.getAttribute('title') || '';
+      const text = node.querySelector('text');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = rawId || title || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const arrows = svg.querySelectorAll('g[id^="link_"], g.link, g[id^="lnk"]');
+    arrows.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const dataUid = node.getAttribute('data-uid') || '';
+      const text = node.querySelector('text');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = rawId || dataUid || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
     });
   }
 }
