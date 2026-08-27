@@ -94,7 +94,7 @@ def _reply_to_comment(review_id: str, secret: str, thread_id: str, body: str) ->
 
 
 @mcp.tool()
-def post_review(markdown: str, title: str = "") -> str:
+def post_review(markdown: str, title: str) -> str:
     """
     POST a markdown proposal to CollabMD for human review.
 
@@ -107,7 +107,9 @@ def post_review(markdown: str, title: str = "") -> str:
     Args:
         markdown: The full markdown content of the proposal. Mermaid ```mermaid
                   fenced blocks render with zoom/pan. Keep it self-contained.
-        title:    Optional human-readable title for the review.
+        title:    Human-readable title for the review (required). The vault
+                  file is named after this title (e.g. "my-proposal-<id>.md"),
+                  so pick something descriptive the human will recognise.
 
     Returns:
         JSON string: { ok, reviewId, secret, vaultPath, url }.
@@ -115,8 +117,10 @@ def post_review(markdown: str, title: str = "") -> str:
     """
     if not markdown or not markdown.strip():
         return json.dumps({"error": "markdown must not be empty"})
+    if not title or not title.strip():
+        return json.dumps({"error": "title is required"})
     try:
-        result = _post_review(markdown, title or None)
+        result = _post_review(markdown, title.strip())
     except httpx.HTTPStatusError as exc:
         return json.dumps({
             "error": f"CollabMD returned {exc.response.status_code}",

@@ -53,6 +53,8 @@ test('POST /api/review creates a vault file and returns a secret-gated URL; GET 
     assert.ok(created.reviewId, 'reviewId must be returned');
     assert.ok(created.secret, 'secret must be returned');
     assert.ok(created.vaultPath.startsWith('tmp/review/'), 'vaultPath must live under tmp/review');
+    assert.ok(created.vaultPath.includes('review-1-'), 'vaultPath must include the title slug');
+    assert.ok(created.vaultPath.endsWith('.md'), 'vaultPath must be a markdown file');
     assert.ok(
       created.url.includes(`#file=${encodeURIComponent(created.vaultPath)}`),
       'url must deep-link into the UI',

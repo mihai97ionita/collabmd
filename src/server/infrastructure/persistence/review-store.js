@@ -9,16 +9,27 @@ const REVIEW_PATH_PREFIX = 'tmp/review/';
 const REVIEW_PATH_SUFFIX = '.md';
 const META_FILE = 'meta.json';
 
+function slugifyTitle(title) {
+  return String(title ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80) || 'untitled';
+}
+
+function buildVaultPath(reviewId, title = null) {
+  const slug = slugifyTitle(title);
+  const shortId = reviewId.slice(0, 8);
+  return `${REVIEW_PATH_PREFIX}${slug}-${shortId}${REVIEW_PATH_SUFFIX}`;
+}
+
 function resolveReviewRoot(vaultDir) {
   return resolve(vaultDir, REVIEW_STORAGE_ROOT);
 }
 
 function resolveReviewDir(vaultDir, reviewId) {
   return resolve(resolveReviewRoot(vaultDir), reviewId);
-}
-
-function buildVaultPath(reviewId) {
-  return `${REVIEW_PATH_PREFIX}${reviewId}${REVIEW_PATH_SUFFIX}`;
 }
 
 export class ReviewStore {
@@ -29,7 +40,8 @@ export class ReviewStore {
   async create({ markdown, title = null } = {}) {
     const reviewId = randomUUID();
     const secret = randomUUID();
-    const vaultPath = buildVaultPath(reviewId);
+    const normalizedTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
+    const vaultPath = buildVaultPath(reviewId, normalizedTitle);
     const reviewDir = resolveReviewDir(this.vaultDir, reviewId);
 
     const { absolute: proposalAbsolute, error: proposalError } = resolveVaultFilePath(this.vaultDir, vaultPath);
@@ -41,7 +53,7 @@ export class ReviewStore {
       createdAt: Date.now(),
       reviewId,
       secret,
-      title: typeof title === 'string' && title.trim() ? title.trim() : null,
+      title: normalizedTitle,
       vaultPath,
     };
 
@@ -120,8 +132,8 @@ export class ReviewStore {
     return { ok: true };
   }
 
-  getVaultPath(reviewId) {
-    return buildVaultPath(reviewId);
+  getVaultPath(reviewId, title = null) {
+    return buildVaultPath(reviewId, title);
   }
 }
 
