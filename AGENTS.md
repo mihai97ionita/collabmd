@@ -301,6 +301,36 @@ The agent serves the committed `dist/` build. After any code change,
 run `npm run build` then `launchctl kickstart -k gui/$(id -u)/com.imihai.collabmd`
 to pick up the new bundle.
 
+### MCP tools (`mcp/`)
+
+Two local stdio MCP servers are versioned in this repo under `mcp/` so the
+agent loop and the CollabMD server live in one place. Each server is a
+self-contained `uv` inline script (no venv needed).
+
+- `mcp/collabmd-review/server.py` — `post_review(markdown, title="")` and
+  `get_review(review_id, secret, include_resolved=false)`. This is the
+  agent-facing surface of the review API: POST a proposal, get back
+  `{ reviewId, secret, url }`; GET the proposal back with the human's
+  comments woven into a `## Review Comments` appendix.
+- `mcp/agent-wait/server.py` — `wait(seconds, label="")` and
+  `wait_for(condition, params, timeout_s, interval_s=2)`. General-purpose
+  block/poll used to wait for the CollabMD server to be ready after a
+  restart (e.g. `wait_for("port_open", {host,port=1317}, 60)`).
+
+The repo copies are the source of truth. The runtime copies that
+Augment launches live under `~/.augment/tools/<name>/server.py`. Sync
+with:
+
+```bash
+./mcp/sync.sh        # copies both servers into ~/.augment/tools/ and re-registers
+```
+
+(or follow the manual `cp` + `auggie mcp add-json` steps in each server's
+README). Verify with `auggie mcp list`.
+
+The `collabmd-review` server reads `COLLABMD_URL` (default
+`http://localhost:1317`) and points at the launchd-managed instance.
+
 ### End-to-end loop (how it is consumed)
 
 ```text
