@@ -10,6 +10,7 @@ import {
   normalizeDiagramError,
   normalizeMermaidSvg,
 } from './preview-diagram-utils.js';
+import { stripMermaidIdPrefix } from './mermaid-comment-anchor.js';
 
 export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
   constructor(renderer, { loadFileSource = null } = {}) {
@@ -474,6 +475,26 @@ export class MermaidPreviewHydrator extends DiagramPreviewHydrator {
       const text = node.querySelector('text');
       const labelText = (text?.textContent ?? '').trim();
       const tagValue = rawId || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const architectureServices = svg.querySelectorAll('g.architecture-service, g.architecture-group');
+    architectureServices.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const text = node.querySelector('text');
+      const labelText = (text?.textContent ?? '').trim();
+      const tagValue = stripMermaidIdPrefix(rawId) || labelText || '';
+      if (tagValue) {
+        node.setAttribute('data-mermaid-element-id', tagValue);
+      }
+    });
+
+    const architectureEdges = svg.querySelectorAll('g.architecture-edges > path.edge');
+    architectureEdges.forEach((node) => {
+      const rawId = node.getAttribute('id') || '';
+      const tagValue = stripMermaidIdPrefix(rawId) || rawId || '';
       if (tagValue) {
         node.setAttribute('data-mermaid-element-id', tagValue);
       }

@@ -1,5 +1,6 @@
 const MERMAID_NODE_SELECTOR = 'g.node, g.edgePath, g.edgeLabel';
-const DIAGRAM_ELEMENT_SELECTOR = `${MERMAID_NODE_SELECTOR}, [data-mermaid-element-id]`;
+const ARCHITECTURE_BETA_SELECTOR = 'g.architecture-service, g.architecture-group, g.architecture-edges > path.edge';
+const DIAGRAM_ELEMENT_SELECTOR = `${MERMAID_NODE_SELECTOR}, ${ARCHITECTURE_BETA_SELECTOR}, [data-mermaid-element-id]`;
 
 function findMermaidAncestor(element) {
   return element?.closest?.('.mermaid-render-node, .mermaid, .plantuml-shell') ?? null;
@@ -52,6 +53,20 @@ function getElementBBoxInSvgUserSpace(target, _svg) {
   }
 }
 
+function stripMermaidIdPrefix(id) {
+  const trimmed = id.trim();
+  const match = trimmed.match(/-(?:service|group)-(.+)$/);
+  if (match) {
+    return match[1] || null;
+  }
+  const edgeMatch = trimmed.match(/-L_(.+)$/);
+  if (edgeMatch && edgeMatch[1]) {
+    return `L_${edgeMatch[1]}`;
+  }
+  const stripped = trimmed.replace(/^mermaid-\d+-/, '');
+  return stripped || null;
+}
+
 function readElementId(target) {
   const dataId = target.getAttribute('data-mermaid-element-id');
   if (dataId && dataId.trim()) {
@@ -61,8 +76,7 @@ function readElementId(target) {
   if (!id) {
     return null;
   }
-  const trimmed = id.trim().replace(/^mermaid-\d+-/, '');
-  return trimmed || null;
+  return stripMermaidIdPrefix(id);
 }
 
 function readElementText(target) {
@@ -106,6 +120,12 @@ function classifyElementType(target) {
   }
   if (target.classList.contains('blockNode')) {
     return 'node';
+  }
+  if (target.classList.contains('architecture-service') || target.classList.contains('architecture-group')) {
+    return 'node';
+  }
+  if (target.classList.contains('edge') && target.tagName?.toLowerCase() === 'path') {
+    return 'edge';
   }
   const id = target.getAttribute('id') || '';
   if (id.startsWith('link_') || target.classList.contains('link')) {
@@ -177,6 +197,7 @@ export {
   isCommentModeActive,
   readElementId,
   readElementText,
+  stripMermaidIdPrefix,
   MERMAID_NODE_SELECTOR,
 };
 
