@@ -211,7 +211,7 @@ test('POST /api/review and GET /api/review/:id use publicBaseUrl when configured
   }
 });
 
-test('PUT /api/review/:id replaces the proposal markdown when no session is active', async () => {
+test('PUT /api/review/:id reconciles comment anchors against the new proposal', async () => {
   const server = await startTestServer();
   try {
     const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
@@ -221,27 +221,67 @@ test('PUT /api/review/:id replaces the proposal markdown when no session is acti
     });
     const created = JSON.parse(createResponse.body);
 
+    // Seed a comment thread anchored to a line that exists in the old proposal.
+    const commentPath = join(server.vaultDir, '.collabmd/comments', `${created.vaultPath}.json`);
+    await mkdir(dirname(commentPath), { recursive: true });
+    await writeFile(commentPath, JSON.stringify({
+      version: 1,
+      threads: [{
+        id: 'thread-reanchor-1',
+        anchorKind: 'line',
+        anchorStartLine: 3,
+        anchorEndLine: 3,
+        anchorStart: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorEnd: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorQuote: 'First draft.',
+        createdAt: Date.parse('2026-08-26T14:00:00Z'),
+        createdByName: 'reviewer',
+        createdByColor: '',
+        createdByPeerId: 'peer-1',
+        resolvedAt: null,
+        messages: [{
+          id: 'comment-original',
+          body: 'This line should move.',
+          createdAt: Date.parse('2026-08-26T14:01:00Z'),
+          editedAt: null,
+          userName: 'reviewer',
+          userColor: '',
+          peerId: 'peer-1',
+          reactions: [],
+        }],
+      }],
+    }), 'utf-8');
+
+    // PUT a new proposal that moves the quoted content to a different line.
     const putResponse = await httpRequest(
       `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown: '# V2\n\nRevised draft.\n' }),
+        body: JSON.stringify({ markdown: '# V2\n\nNew intro line.\n\nFirst draft.\n' }),
       },
     );
     assert.equal(putResponse.statusCode, 200);
     const updated = JSON.parse(putResponse.body);
     assert.equal(updated.ok, true);
-    assert.equal(updated.vaultPath, created.vaultPath);
-    assert.ok(Number.isFinite(updated.updatedAt), 'updatedAt must be set');
+    assert.ok(updated.reconciliation, 'PUT must return a reconciliation report');
+    assert.deepEqual(updated.reconciliation.reanchored, ['thread-reanchor-1']);
 
-    const proposalOnDisk = await readFile(join(server.vaultDir, created.vaultPath), 'utf-8');
-    assert.equal(proposalOnDisk, '# V2\n\nRevised draft.\n', 'PUT must overwrite the proposal file verbatim');
+    // The sidecar must reflect the re-anchored line (5, not 3) and cleared positions.
+    const sidecar = JSON.parse(await readFile(commentPath, 'utf-8'));
+    const thread = sidecar.threads.find((entry) => entry.id === 'thread-reanchor-1');
+    assert.equal(thread.anchorStartLine, 5);
+    assert.equal(thread.anchorEndLine, 5);
+    assert.equal(thread.anchorStart, null, 'stale relative position must be cleared');
+    assert.equal(thread.anchorEnd, null, 'stale relative position must be cleared');
+    assert.equal(thread.anchorStatus, 'resolved');
 
+    // GET should still render the comment under the new line.
     const getResponse = await httpRequest(
       `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
     );
-    assert.ok(getResponse.body.startsWith('# V2'), 'GET after PUT must reflect the new proposal');
+    assert.equal(getResponse.statusCode, 200);
+    assert.ok(getResponse.body.includes('### Line 5'), 'GET must show the re-anchored line');
   } finally {
     await server.close();
   }

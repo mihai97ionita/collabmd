@@ -488,7 +488,9 @@ export class CommentThreadStore {
 
     return {
       ...thread,
+      ...(thread.anchorStatus ? { anchorStatus: thread.anchorStatus } : {}),
       anchor: {
+        ...(thread.anchorStatus ? { anchorStatus: thread.anchorStatus } : {}),
         endIndex,
         endLine,
         excerpt,

@@ -286,16 +286,21 @@ export function normalizeCommentAnchor(record = {}) {
   const anchorEndLine = asFiniteNumber(record.anchorEndLine);
   const anchorQuote = normalizeCommentQuote(record.anchorQuote);
 
-  if (!anchorKind || !anchorStart || !anchorEnd || anchorStartLine === null || anchorEndLine === null) {
+  // Reconciled anchors clear the stale Yjs relative positions and rely on the
+  // line range alone; accept a missing position pair as long as the lines are
+  // present. The line fallback is authoritative for these records.
+  const hasLineRange = anchorStartLine !== null && anchorEndLine !== null;
+  const hasPositions = anchorStart && anchorEnd;
+  if (!anchorKind || (!hasPositions && !hasLineRange) || anchorStartLine === null || anchorEndLine === null) {
     return null;
   }
 
   return {
-    anchorEnd,
+    ...(anchorEnd ? { anchorEnd } : {}),
+    ...(anchorStart ? { anchorStart } : {}),
     anchorEndLine: Math.max(anchorEndLine, anchorStartLine),
     anchorKind,
     anchorQuote,
-    anchorStart,
     anchorStartLine: Math.max(anchorStartLine, 1),
   };
 }
@@ -335,10 +340,17 @@ export function createCommentThreadSharedType(record = {}) {
       thread.set('diagramKey', anchor.diagramKey);
     }
   } else {
-    thread.set('anchorEnd', anchor.anchorEnd);
+    if (anchor.anchorEnd) {
+      thread.set('anchorEnd', anchor.anchorEnd);
+    }
     thread.set('anchorEndLine', anchor.anchorEndLine);
-    thread.set('anchorStart', anchor.anchorStart);
+    if (anchor.anchorStart) {
+      thread.set('anchorStart', anchor.anchorStart);
+    }
     thread.set('anchorStartLine', anchor.anchorStartLine);
+  }
+  if (asString(record.anchorStatus).trim()) {
+    thread.set('anchorStatus', asString(record.anchorStatus).trim());
   }
   thread.set('createdAt', asFiniteNumber(record.createdAt) ?? Date.now());
   thread.set('createdByColor', asString(record.createdByColor));
@@ -376,8 +388,11 @@ export function serializeCommentThread(thread, { includeResolved = false } = {})
     return null;
   }
 
+  const anchorStatus = asString(readThreadValue(thread, 'anchorStatus')).trim() || null;
+
   return {
     ...anchor,
+    ...(anchorStatus ? { anchorStatus } : {}),
     createdAt: asFiniteNumber(readThreadValue(thread, 'createdAt')) ?? messages[0].createdAt,
     createdByColor: asString(readThreadValue(thread, 'createdByColor')) || messages[0].userColor,
     createdByName: asString(readThreadValue(thread, 'createdByName')) || messages[0].userName,

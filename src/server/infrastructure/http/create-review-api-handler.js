@@ -1,4 +1,5 @@
 import { createCommentId, normalizeCommentBody, serializeCommentThreads } from '../../../domain/comment-threads.js';
+import { reconcileCommentThreads } from '../../../domain/comment-anchors.js';
 import { serializeReviewToMarkdown } from '../../../domain/review-markdown-serializer.js';
 import { handleApiError } from './http-request-helpers.js';
 import { jsonResponse, sendResponse } from './http-response.js';
@@ -212,16 +213,39 @@ async function handleReviewUpdate(context, req, res, requestUrl) {
       return true;
     }
 
+    // Reconcile comment anchors against the new proposal before writing, so
+    // line/text threads follow their quoted content across a revision. Diagram
+    // anchors are deferred (validated by the browser after render).
+    const existingThreads = await context.vaultFileStore.readCommentThreads(meta.vaultPath);
+    const reconciliation = reconcileCommentThreads(existingThreads, body.markdown);
+
     const result = await reviewStore.writeProposal(reviewId, body.markdown);
     if (!result.ok) {
       jsonResponse(req, res, result.status ?? 500, { error: result.error || 'Failed to update review' });
       return true;
     }
 
+    if (Array.isArray(existingThreads) && existingThreads.length > 0) {
+      const writeResult = await context.vaultFileStore.writeCommentThreads(meta.vaultPath, reconciliation.threads);
+      if (!writeResult.ok) {
+        // Proposal is already written; surface the failure but do not pretend
+        // the anchors reconciled.
+        jsonResponse(req, res, 200, {
+          ok: true,
+          vaultPath: result.vaultPath,
+          updatedAt: result.updatedAt,
+          warning: 'Proposal written but comment anchors could not be reconciled',
+          reconciliation: null,
+        });
+        return true;
+      }
+    }
+
     jsonResponse(req, res, 200, {
       ok: true,
       vaultPath: result.vaultPath,
       updatedAt: result.updatedAt,
+      reconciliation: reconciliation.report,
     });
   } catch (error) {
     handleApiError(req, res, error, '[api] Failed to update review:', 'Failed to update review');
