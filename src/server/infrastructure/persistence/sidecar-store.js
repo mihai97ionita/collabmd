@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { dirname, join, resolve } from 'path';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'fs/promises';
 
@@ -5,6 +6,10 @@ import { resolveVaultFilePath, toVaultRelativePath } from './path-utils.js';
 
 const COMMENT_STORAGE_ROOT = '.collabmd/comments';
 const YJS_SNAPSHOT_STORAGE_ROOT = '.collabmd/yjs';
+
+function createCommentTempPath(targetPath) {
+  return `${targetPath}.collabmd-tmp-${randomUUID()}`;
+}
 
 function resolveSidecarPath(vaultDir, filePath, storageRoot, extension) {
   const { absolute: absoluteVaultPath } = resolveVaultFilePath(vaultDir, filePath);
@@ -33,8 +38,9 @@ async function renameIfPresent(sourcePath, targetPath) {
 }
 
 export class SidecarStore {
-  constructor({ vaultDir }) {
+  constructor({ vaultDir, renameFile = rename }) {
     this.vaultDir = vaultDir;
+    this.renameFile = renameFile;
   }
 
   getCommentThreadPath(filePath) {
@@ -125,6 +131,7 @@ export class SidecarStore {
       return { ok: false, error: 'Invalid file path' };
     }
 
+    let tempPath = null;
     try {
       if (!Array.isArray(threads) || threads.length === 0) {
         await rm(absolute, { force: true });
@@ -132,12 +139,18 @@ export class SidecarStore {
       }
 
       await mkdir(dirname(absolute), { recursive: true });
-      await writeFile(absolute, `${JSON.stringify({
+      tempPath = createCommentTempPath(absolute);
+      await writeFile(tempPath, `${JSON.stringify({
         threads,
         version: 1,
       }, null, 2)}\n`, 'utf-8');
+      await this.renameFile(tempPath, absolute);
+      tempPath = null;
       return { ok: true };
     } catch (error) {
+      if (tempPath) {
+        await rm(tempPath, { force: true }).catch(() => {});
+      }
       return { ok: false, error: error.message };
     }
   }

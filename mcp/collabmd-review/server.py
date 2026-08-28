@@ -5,7 +5,7 @@
 """
 CollabMD Review MCP server
 
-Four tools for the human-review loop:
+Five tools for the human-review loop:
 
 1. post_review(markdown, title?) -> { reviewId, secret, url, vaultPath }
    Send a markdown proposal to CollabMD. Returns the absolute browser URL
@@ -30,6 +30,10 @@ Four tools for the human-review loop:
    to the human's comments without re-posting the whole proposal. The reply
    lands in the comment sidecar and shows up on the next get_review(). Returns
    409 if the browser has the file open — wait and retry.
+
+5. reanchor_review_threads(review_id, secret, moves) -> { ok, moved }
+   Move line/text review threads to explicit 1-based line ranges in the current
+   proposal. The whole batch is validated before the comment sidecar is updated.
 
 Requires a running CollabMD instance with the review API enabled
 (default http://localhost:1317, override with COLLABMD_URL env).
@@ -88,6 +92,17 @@ def _reply_to_comment(review_id: str, secret: str, thread_id: str, body: str) ->
             f"{COLLABMD_URL}/api/review/{review_id}/threads/{thread_id}/reply",
             params=params,
             json={"body": body},
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _reanchor_review_threads(review_id: str, secret: str, moves: list[dict]) -> dict:
+    with httpx.Client(timeout=HTTP_TIMEOUT) as client:
+        resp = client.patch(
+            f"{COLLABMD_URL}/api/review/{review_id}/anchors",
+            headers={"X-Review-Secret": secret},
+            json={"moves": moves},
         )
         resp.raise_for_status()
         return resp.json()
@@ -245,6 +260,31 @@ def reply_to_comment(review_id: str, secret: str, thread_id: str, body: str) -> 
         return json.dumps({"error": "body must not be empty"})
     try:
         result = _reply_to_comment(review_id, secret, thread_id, body)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps({
+            "error": f"CollabMD returned {exc.response.status_code}",
+            "body": exc.response.text[:500],
+            "status": exc.response.status_code,
+        })
+    except httpx.RequestError as exc:
+        return json.dumps({"error": f"request failed: {exc}"})
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def reanchor_review_threads(review_id: str, secret: str, moves: list[dict]) -> str:
+    """Move line/text review threads to explicit ranges in the current proposal.
+
+    Each move contains ``threadId``, 1-based ``startLine`` and ``endLine``, and
+    a non-empty ``quote`` contained within those selected proposal lines. The
+    server validates the complete batch before writing any anchor changes.
+    """
+    if not review_id or not secret:
+        return json.dumps({"error": "review_id and secret are required"})
+    if not isinstance(moves, list) or not moves:
+        return json.dumps({"error": "moves must be a non-empty list"})
+    try:
+        result = _reanchor_review_threads(review_id, secret, moves)
     except httpx.HTTPStatusError as exc:
         return json.dumps({
             "error": f"CollabMD returned {exc.response.status_code}",

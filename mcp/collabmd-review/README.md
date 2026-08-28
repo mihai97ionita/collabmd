@@ -1,7 +1,7 @@
 # collabmd-review MCP
 
 A local stdio MCP server that exposes the CollabMD review API to any Augment
-session. Two tools for the human-review loop.
+session. Five tools for the human-review loop.
 
 ## Tools
 
@@ -41,11 +41,21 @@ markdown:
 Edited messages carry `(edited)`. Resolved threads are excluded by default;
 pass `include_resolved=true` to see them marked `(resolved)`.
 
+### `reanchor_review_threads(review_id, secret, moves)`
+
+PATCH existing unresolved line/text threads with
+`moves=[{threadId,startLine,endLine,quote}]`. `startLine` and `endLine` are
+the exact inclusive 1-based proposal line range, and `quote` must be contained
+within the selected lines. The complete batch is validated atomically before
+any anchors are changed. This does not create or delete threads or change
+resolution state. An active browser session returns `409`; success returns
+`{ "ok": true, "moved": [...] }`.
+
 ## Requirements
 
-- A running CollabMD instance with the review API (`POST /api/review` and
-  `GET /api/review/:id`) enabled. Default `http://localhost:1317`; override
-  with the `COLLABMD_URL` env var.
+- A running CollabMD instance with the review API enabled (`POST /api/review`,
+  `GET /api/review/:id`, and `PATCH /api/review/:id/anchors`). Default
+  `http://localhost:1317`; override with the `COLLABMD_URL` env var.
 - `uv` on PATH. The server is an inline uv script — no venv needed; uv
   resolves `mcp[cli]` + `httpx` on first run.
 
@@ -87,7 +97,14 @@ No `cp` step — the script runs in place from `mcp/collabmd-review/server.py`.
 3. (wait for the human to finish)
 4. get_review(review_id=<reviewId>, secret=<secret>)
    → you read the proposal + ## Review Comments appendix
-5. act on the comments; iterate (go to 1 with an updated proposal)
+5. put_review_md(review_id=<reviewId>, secret=<secret>, markdown=<updated>)
+   → PUT the revised proposal; existing anchors are auto-reconciled
+6. optionally reanchor_review_threads(
+     review_id=<reviewId>, secret=<secret>, moves=[{threadId,startLine,endLine,quote}])
+   → precisely move remaining line/text threads
+7. get_review(review_id=<reviewId>, secret=<secret>)
+   → verify the updated proposal + comments
+8. act on the comments; iterate (go to 1 with an updated proposal)
 ```
 
 ## Files

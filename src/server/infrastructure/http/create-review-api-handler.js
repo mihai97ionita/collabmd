@@ -1,4 +1,5 @@
 import { createCommentId, normalizeCommentBody, serializeCommentThreads } from '../../../domain/comment-threads.js';
+import { moveCommentThreadAnchors, reconcileCommentThreads } from '../../../domain/comment-anchors.js';
 import { serializeReviewToMarkdown } from '../../../domain/review-markdown-serializer.js';
 import { handleApiError } from './http-request-helpers.js';
 import { jsonResponse, sendResponse } from './http-response.js';
@@ -49,6 +50,16 @@ function readReplyTargetFromPath(pathname) {
   return { reviewId, threadId };
 }
 
+function readAnchorMoveReviewId(pathname) {
+  const prefix = '/api/review/';
+  const suffix = '/anchors';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+    return null;
+  }
+  const reviewId = pathname.slice(prefix.length, pathname.length - suffix.length);
+  return reviewId && !reviewId.includes('/') ? reviewId : null;
+}
+
 function isReviewPostPath(pathname) {
   return pathname === '/api/review';
 }
@@ -65,6 +76,10 @@ function isReviewReplyPath(pathname) {
   return pathname.includes('/threads/') && pathname.endsWith('/reply');
 }
 
+function isReviewAnchorMovePath(pathname) {
+  return readAnchorMoveReviewId(pathname) !== null;
+}
+
 function hasActiveCollaborationSession(roomRegistry, vaultPath) {
   if (!roomRegistry || typeof roomRegistry.get !== 'function') {
     return false;
@@ -75,6 +90,31 @@ function hasActiveCollaborationSession(roomRegistry, vaultPath) {
   }
   const clientCount = typeof room.clients?.size === 'number' ? room.clients.size : 0;
   return clientCount > 0;
+}
+
+function sendActiveReviewConflict(req, res, vaultPath) {
+  jsonResponse(req, res, 409, {
+    error: 'Review file is open in a browser collaboration session',
+    vaultPath,
+  });
+}
+
+async function reserveExternalReviewMutation(context, req, res, vaultPath) {
+  const roomRegistry = context.roomRegistry;
+  if (!roomRegistry || typeof roomRegistry.reserveExternalMutation !== 'function') {
+    if (hasActiveCollaborationSession(roomRegistry, vaultPath)) {
+      sendActiveReviewConflict(req, res, vaultPath);
+      return null;
+    }
+    return { release: async () => {} };
+  }
+
+  const reservation = await roomRegistry.reserveExternalMutation(vaultPath);
+  if (!reservation.ok) {
+    sendActiveReviewConflict(req, res, vaultPath);
+    return null;
+  }
+  return reservation;
 }
 
 async function handleReviewCreate(context, req, res) {
@@ -198,33 +238,119 @@ async function handleReviewUpdate(context, req, res, requestUrl) {
       return true;
     }
 
-    if (hasActiveCollaborationSession(context.roomRegistry, meta.vaultPath)) {
-      jsonResponse(req, res, 409, {
-        error: 'Review file is open in a browser collaboration session',
-        vaultPath: meta.vaultPath,
+    const reservation = await reserveExternalReviewMutation(context, req, res, meta.vaultPath);
+    if (!reservation) {
+      return true;
+    }
+    let wrote = false;
+    try {
+      const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
+      if (!body || typeof body.markdown !== 'string' || body.markdown.trim() === '') {
+        jsonResponse(req, res, 422, { error: 'Missing or empty "markdown" in request body' });
+        return true;
+      }
+
+      // Reconcile comment anchors against the new proposal before writing, so
+      // line/text threads follow their quoted content across a revision. Diagram
+      // anchors are deferred (validated by the browser after render).
+      const existingThreads = await context.vaultFileStore.readCommentThreads(meta.vaultPath);
+      const reconciliation = reconcileCommentThreads(existingThreads, body.markdown);
+
+      const result = await reviewStore.writeProposal(reviewId, body.markdown);
+      if (!result.ok) {
+        jsonResponse(req, res, result.status ?? 500, { error: result.error || 'Failed to update review' });
+        return true;
+      }
+      wrote = true;
+
+      if (Array.isArray(existingThreads) && existingThreads.length > 0) {
+        const writeResult = await context.vaultFileStore.writeCommentThreads(meta.vaultPath, reconciliation.threads);
+        if (!writeResult.ok) {
+          // Proposal is already written; surface the failure but do not pretend
+          // the anchors reconciled.
+          jsonResponse(req, res, 200, {
+            ok: true,
+            vaultPath: result.vaultPath,
+            updatedAt: result.updatedAt,
+            warning: 'Proposal written but comment anchors could not be reconciled',
+            reconciliation: null,
+          });
+          return true;
+        }
+      }
+
+      jsonResponse(req, res, 200, {
+        ok: true,
+        vaultPath: result.vaultPath,
+        updatedAt: result.updatedAt,
+        reconciliation: reconciliation.report,
       });
-      return true;
+    } finally {
+      await reservation.release({ refreshFromDisk: wrote });
     }
-
-    const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
-    if (!body || typeof body.markdown !== 'string' || body.markdown.trim() === '') {
-      jsonResponse(req, res, 422, { error: 'Missing or empty "markdown" in request body' });
-      return true;
-    }
-
-    const result = await reviewStore.writeProposal(reviewId, body.markdown);
-    if (!result.ok) {
-      jsonResponse(req, res, result.status ?? 500, { error: result.error || 'Failed to update review' });
-      return true;
-    }
-
-    jsonResponse(req, res, 200, {
-      ok: true,
-      vaultPath: result.vaultPath,
-      updatedAt: result.updatedAt,
-    });
   } catch (error) {
     handleApiError(req, res, error, '[api] Failed to update review:', 'Failed to update review');
+  }
+  return true;
+}
+
+async function handleReviewAnchorMove(context, req, res, requestUrl) {
+  try {
+    const reviewId = readAnchorMoveReviewId(requestUrl.pathname);
+    const reviewStore = context.reviewStore;
+    const vaultFileStore = context.vaultFileStore;
+    if (!reviewId || !reviewStore || !vaultFileStore) {
+      jsonResponse(req, res, reviewId ? 503 : 404, { error: reviewId ? 'Review store is not configured' : 'Review not found' });
+      return true;
+    }
+
+    const meta = await reviewStore.readMeta(reviewId);
+    if (!meta) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const providedSecret = requestUrl.searchParams.get('secret') || req.headers['x-review-secret'];
+    if (typeof providedSecret !== 'string' || providedSecret !== meta.secret) {
+      jsonResponse(req, res, 403, { error: 'Invalid review secret' });
+      return true;
+    }
+
+    const reservation = await reserveExternalReviewMutation(context, req, res, meta.vaultPath);
+    if (!reservation) {
+      return true;
+    }
+    let wrote = false;
+    try {
+      const proposalMarkdown = await reviewStore.readProposal(reviewId);
+      if (proposalMarkdown === null) {
+        jsonResponse(req, res, 404, { error: 'Review proposal not found' });
+        return true;
+      }
+
+      const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
+      const existingThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
+      const moved = moveCommentThreadAnchors(existingThreads, body?.moves, proposalMarkdown);
+      if (!moved.ok) {
+        const statusCode = moved.code === 'thread-not-found' ? 404 : 422;
+        jsonResponse(req, res, statusCode, { error: moved.error, code: moved.code, threadId: moved.threadId ?? null });
+        return true;
+      }
+
+      const writeResult = await vaultFileStore.writeCommentThreads(meta.vaultPath, moved.threads);
+      if (!writeResult.ok) {
+        console.error('[api] Failed to persist comment anchors:', writeResult.error);
+        jsonResponse(req, res, 500, { error: 'Failed to persist comment anchors' });
+        return true;
+      }
+      wrote = true;
+
+      jsonResponse(req, res, 200, { ok: true, moved: moved.moved });
+    } finally {
+      await reservation.release({ refreshFromDisk: wrote });
+    }
+  } catch (error) {
+    handleApiError(req, res, error, '[api] Failed to move review thread anchors:', 'Failed to move review thread anchors');
   }
   return true;
 }
@@ -317,30 +443,40 @@ async function handleReviewReply(context, req, res, requestUrl) {
       return true;
     }
 
-    const rawThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
-    const threadIndex = rawThreads.findIndex((thread) => thread?.id === target.threadId);
-    if (threadIndex < 0) {
-      jsonResponse(req, res, 404, { error: 'Comment thread not found' });
+    const reservation = await reserveExternalReviewMutation(context, req, res, meta.vaultPath);
+    if (!reservation) {
       return true;
     }
+    let wrote = false;
+    try {
+      const rawThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
+      const threadIndex = rawThreads.findIndex((thread) => thread?.id === target.threadId);
+      if (threadIndex < 0) {
+        jsonResponse(req, res, 404, { error: 'Comment thread not found' });
+        return true;
+      }
 
-    const updatedThreads = rawThreads.map((thread, index) => (
-      index === threadIndex
-        ? { ...thread, messages: [...(thread.messages ?? []), message] }
-        : thread
-    ));
+      const updatedThreads = rawThreads.map((thread, index) => (
+        index === threadIndex
+          ? { ...thread, messages: [...(thread.messages ?? []), message] }
+          : thread
+      ));
 
-    const writeResult = await vaultFileStore.writeCommentThreads(meta.vaultPath, updatedThreads);
-    if (!writeResult.ok) {
-      jsonResponse(req, res, 500, { error: writeResult.error || 'Failed to persist reply' });
-      return true;
+      const writeResult = await vaultFileStore.writeCommentThreads(meta.vaultPath, updatedThreads);
+      if (!writeResult.ok) {
+        jsonResponse(req, res, 500, { error: writeResult.error || 'Failed to persist reply' });
+        return true;
+      }
+      wrote = true;
+
+      jsonResponse(req, res, 200, {
+        ok: true,
+        messageId: message.id,
+        threadId: target.threadId,
+      });
+    } finally {
+      await reservation.release({ refreshFromDisk: wrote });
     }
-
-    jsonResponse(req, res, 200, {
-      ok: true,
-      messageId: message.id,
-      threadId: target.threadId,
-    });
   } catch (error) {
     handleApiError(req, res, error, '[api] Failed to reply to review thread:', 'Failed to reply to review thread');
   }
@@ -352,6 +488,7 @@ const ROUTE_TABLE = [
   { method: 'GET', path: '/api/review/:id', handler: handleReviewRead },
   { method: 'PUT', path: '/api/review/:id', handler: handleReviewUpdate },
   { method: 'POST', path: '/api/review/:id/threads/:threadId/reply', handler: handleReviewReply },
+  { method: 'PATCH', path: '/api/review/:id/anchors', handler: handleReviewAnchorMove },
 ];
 
 export function createReviewApiHandler({
@@ -369,6 +506,9 @@ export function createReviewApiHandler({
     }
     if (isReviewReplyPath(requestUrl.pathname) && req.method === 'POST') {
       return ROUTE_TABLE[3].handler(context, req, res, requestUrl);
+    }
+    if (isReviewAnchorMovePath(requestUrl.pathname) && req.method === 'PATCH') {
+      return ROUTE_TABLE[4].handler(context, req, res, requestUrl);
     }
     if (isReviewGetPath(requestUrl.pathname) && req.method === 'GET') {
       return ROUTE_TABLE[1].handler(context, req, res, requestUrl);

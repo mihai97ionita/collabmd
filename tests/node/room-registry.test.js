@@ -96,3 +96,99 @@ test('RoomRegistry reconciles workspace changes by reloading changed rooms, dest
   assert.equal(registry.get('renamed-old.md'), undefined);
   assert.notEqual(registry.get('renamed-new.md'), undefined);
 });
+
+test('RoomRegistry serializes external mutations and releases the path after every reservation', async () => {
+  let reloads = 0;
+  const registry = new RoomRegistry({
+    createRoom: () => ({
+      clients: new Set(),
+      hasActiveOrPendingClients() {
+        return false;
+      },
+      async awaitExternalMutationBarrier() {},
+      async reloadFromDisk() {
+        reloads += 1;
+      },
+    }),
+  });
+  registry.getOrCreate('review.md');
+
+  const first = await registry.reserveExternalMutation('review.md');
+  let secondAcquired = false;
+  const secondPending = registry.reserveExternalMutation('review.md').then((reservation) => {
+    secondAcquired = true;
+    return reservation;
+  });
+
+  await Promise.resolve();
+  assert.equal(first.ok, true);
+  assert.equal(secondAcquired, false);
+  assert.equal(registry.isExternalMutationReserved('review.md'), true);
+
+  await first.release({ refreshFromDisk: true });
+  const second = await secondPending;
+  assert.equal(second.ok, true);
+  assert.equal(reloads, 1);
+  assert.equal(registry.isExternalMutationReserved('review.md'), true);
+
+  await second.release();
+  assert.equal(registry.isExternalMutationReserved('review.md'), false);
+});
+
+test('RoomRegistry evicts and destroys a room when refresh after external mutation fails', async () => {
+  const events = [];
+  let roomId = 0;
+  const registry = new RoomRegistry({
+    createRoom: ({ name }) => {
+      const id = ++roomId;
+      return {
+        clients: new Set(),
+        hasActiveOrPendingClients() {
+          return false;
+        },
+        async awaitExternalMutationBarrier() {},
+        async reloadFromDisk() {
+          events.push(['reload', name, id]);
+          if (id === 1) {
+            throw new Error('reload failed');
+          }
+        },
+        markDeleted() {
+          events.push(['mark-deleted', name, id]);
+        },
+        async destroy() {
+          events.push(['destroy', name, id]);
+        },
+      };
+    },
+  });
+
+  const originalRoom = registry.getOrCreate('review.md');
+  const reservation = await registry.reserveExternalMutation('review.md');
+
+  await assert.doesNotReject(() => reservation.release({ refreshFromDisk: true }));
+
+  assert.deepEqual(events, [['reload', 'review.md', 1], ['destroy', 'review.md', 1]]);
+  assert.equal(registry.get('review.md'), undefined);
+  assert.equal(registry.isExternalMutationReserved('review.md'), false);
+
+  const freshRoom = registry.getOrCreate('review.md');
+  assert.notEqual(freshRoom, originalRoom);
+  assert.equal(freshRoom, registry.get('review.md'));
+});
+
+test('RoomRegistry rejects an external mutation while a room has active or hydrating clients', async () => {
+  const registry = new RoomRegistry({
+    createRoom: () => ({
+      hasActiveOrPendingClients() {
+        return true;
+      },
+    }),
+  });
+  registry.getOrCreate('review.md');
+
+  const reservation = await registry.reserveExternalMutation('review.md');
+
+  assert.deepEqual(reservation, { ok: false, reason: 'active-collaboration' });
+  assert.equal(registry.isExternalMutationReserved('review.md'), false);
+});

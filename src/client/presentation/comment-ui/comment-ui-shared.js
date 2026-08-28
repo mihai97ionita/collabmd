@@ -51,6 +51,13 @@ export function areAnchorsEqual(left, right) {
 }
 
 export function formatAnchorLabel(anchor) {
+  // Threads whose anchor could not be reconciled against the current document
+  // are surfaced as unanchored instead of pointing at a stale line.
+  const anchorStatus = anchor?.anchorStatus;
+  if (anchorStatus === 'missing' || anchorStatus === 'ambiguous') {
+    return 'Unanchored';
+  }
+
   if (getAnchorKind(anchor) === 'diagram-element') {
     return 'Diagram element';
   }

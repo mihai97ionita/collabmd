@@ -140,6 +140,7 @@ export function attachCollaborationGateway({
       return;
     }
 
+    const roomName = extractRoomName(requestUrl.pathname, wsBasePath);
     const authResult = authService.authorizeWebSocketRequest(req, requestUrl);
     if (!authResult.ok) {
       rejectUpgrade(socket, authResult.statusCode, authResult.statusMessage, authResult);
@@ -157,6 +158,11 @@ export function attachCollaborationGateway({
             'Content-Type': 'text/plain; charset=utf-8',
           },
         });
+        return;
+      }
+
+      if (roomRegistry.isExternalMutationReserved?.(roomName)) {
+        rejectUpgrade(socket, 409, 'Conflict');
         return;
       }
 

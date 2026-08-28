@@ -43,6 +43,33 @@ function httpRequest(url, { method = 'GET', headers = {}, body } = {}) {
   });
 }
 
+function websocketUpgradeStatus(url) {
+  return new Promise((resolveRequest, rejectRequest) => {
+    const socket = new WebSocket(url);
+    let settled = false;
+    socket.once('open', () => {
+      settled = true;
+      socket.terminate();
+      rejectRequest(new Error('WebSocket upgrade unexpectedly succeeded'));
+    });
+    socket.once('unexpected-response', (_request, response) => {
+      settled = true;
+      response.resume();
+      resolveRequest(response.statusCode);
+    });
+    socket.once('error', (error) => {
+      if (!settled) rejectRequest(error);
+    });
+  });
+}
+
+async function seedReviewThreads(server, created, threads) {
+  const commentPath = join(server.vaultDir, '.collabmd/comments', `${created.vaultPath}.json`);
+  await mkdir(dirname(commentPath), { recursive: true });
+  await writeFile(commentPath, JSON.stringify({ version: 1, threads }), 'utf-8');
+  return commentPath;
+}
+
 test('POST /api/review creates a vault file and returns a secret-gated URL; GET returns the two-part markdown', async () => {
   const server = await startTestServer();
   try {
@@ -211,7 +238,7 @@ test('POST /api/review and GET /api/review/:id use publicBaseUrl when configured
   }
 });
 
-test('PUT /api/review/:id replaces the proposal markdown when no session is active', async () => {
+test('PUT /api/review/:id reconciles comment anchors against the new proposal', async () => {
   const server = await startTestServer();
   try {
     const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
@@ -221,27 +248,67 @@ test('PUT /api/review/:id replaces the proposal markdown when no session is acti
     });
     const created = JSON.parse(createResponse.body);
 
+    // Seed a comment thread anchored to a line that exists in the old proposal.
+    const commentPath = join(server.vaultDir, '.collabmd/comments', `${created.vaultPath}.json`);
+    await mkdir(dirname(commentPath), { recursive: true });
+    await writeFile(commentPath, JSON.stringify({
+      version: 1,
+      threads: [{
+        id: 'thread-reanchor-1',
+        anchorKind: 'line',
+        anchorStartLine: 3,
+        anchorEndLine: 3,
+        anchorStart: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorEnd: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorQuote: 'First draft.',
+        createdAt: Date.parse('2026-08-26T14:00:00Z'),
+        createdByName: 'reviewer',
+        createdByColor: '',
+        createdByPeerId: 'peer-1',
+        resolvedAt: null,
+        messages: [{
+          id: 'comment-original',
+          body: 'This line should move.',
+          createdAt: Date.parse('2026-08-26T14:01:00Z'),
+          editedAt: null,
+          userName: 'reviewer',
+          userColor: '',
+          peerId: 'peer-1',
+          reactions: [],
+        }],
+      }],
+    }), 'utf-8');
+
+    // PUT a new proposal that moves the quoted content to a different line.
     const putResponse = await httpRequest(
       `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown: '# V2\n\nRevised draft.\n' }),
+        body: JSON.stringify({ markdown: '# V2\n\nNew intro line.\n\nFirst draft.\n' }),
       },
     );
     assert.equal(putResponse.statusCode, 200);
     const updated = JSON.parse(putResponse.body);
     assert.equal(updated.ok, true);
-    assert.equal(updated.vaultPath, created.vaultPath);
-    assert.ok(Number.isFinite(updated.updatedAt), 'updatedAt must be set');
+    assert.ok(updated.reconciliation, 'PUT must return a reconciliation report');
+    assert.deepEqual(updated.reconciliation.reanchored, ['thread-reanchor-1']);
 
-    const proposalOnDisk = await readFile(join(server.vaultDir, created.vaultPath), 'utf-8');
-    assert.equal(proposalOnDisk, '# V2\n\nRevised draft.\n', 'PUT must overwrite the proposal file verbatim');
+    // The sidecar must reflect the re-anchored line (5, not 3) and cleared positions.
+    const sidecar = JSON.parse(await readFile(commentPath, 'utf-8'));
+    const thread = sidecar.threads.find((entry) => entry.id === 'thread-reanchor-1');
+    assert.equal(thread.anchorStartLine, 5);
+    assert.equal(thread.anchorEndLine, 5);
+    assert.equal(thread.anchorStart, null, 'stale relative position must be cleared');
+    assert.equal(thread.anchorEnd, null, 'stale relative position must be cleared');
+    assert.equal(thread.anchorStatus, 'resolved');
 
+    // GET should still render the comment under the new line.
     const getResponse = await httpRequest(
       `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
     );
-    assert.ok(getResponse.body.startsWith('# V2'), 'GET after PUT must reflect the new proposal');
+    assert.equal(getResponse.statusCode, 200);
+    assert.ok(getResponse.body.includes('### Line 5'), 'GET must show the re-anchored line');
   } finally {
     await server.close();
   }
@@ -608,6 +675,242 @@ test('POST /api/review/:id/threads/:threadId/reply routes through the live room 
     socket.off('message', liveUpdateHandler);
     socket.close();
   } finally {
+    await server.close();
+  }
+});
+
+test('PATCH /api/review/:id/anchors atomically moves requested text-thread anchors only', async () => {
+  const server = await startTestServer();
+  try {
+    const proposal = ['# Plan', '', 'Short', 'Move this target here.'].join('\n');
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: proposal }),
+    });
+    const created = JSON.parse(createResponse.body);
+    const messages = [{ id: 'message-1', body: 'Keep this message.', reactions: [] }];
+    const untouched = {
+      id: 'thread-untouched',
+      anchorKind: 'line',
+      anchorStartLine: 1,
+      anchorEndLine: 1,
+      anchorQuote: '# Plan',
+      resolvedAt: null,
+      messages: [],
+      custom: 'preserve',
+    };
+    const target = {
+      id: 'thread-move',
+      anchorKind: 'line',
+      anchorStartLine: 1,
+      anchorEndLine: 1,
+      anchorStart: { stale: true },
+      anchorEnd: { stale: true },
+      anchorQuote: 'Old quote',
+      anchorStatus: 'missing',
+      resolvedAt: null,
+      messages,
+      custom: 'preserve',
+    };
+    const commentPath = await seedReviewThreads(server, created, [target, untouched]);
+
+    const patchResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves: [
+          { threadId: 'thread-move', startLine: 3, endLine: 4, quote: 'Short Move this target' },
+        ] }),
+      },
+    );
+
+    assert.equal(patchResponse.statusCode, 200);
+    assert.deepEqual(JSON.parse(patchResponse.body), { ok: true, moved: ['thread-move'] });
+    assert.equal(await readFile(join(server.vaultDir, created.vaultPath), 'utf-8'), proposal);
+    const persisted = JSON.parse(await readFile(commentPath, 'utf-8')).threads;
+    assert.equal(persisted.length, 2);
+    assert.deepEqual(persisted[0], {
+      ...target,
+      anchorStartLine: 3,
+      anchorEndLine: 4,
+      anchorStart: null,
+      anchorEnd: null,
+      anchorQuote: 'Short Move this target',
+      anchorStatus: 'resolved',
+    });
+    assert.deepEqual(persisted[1], untouched);
+  } finally {
+    await server.close();
+  }
+});
+
+test('PATCH /api/review/:id/anchors maps secret, review, target, and validation failures', async () => {
+  const server = await startTestServer();
+  try {
+    const proposal = ['# Plan', 'Open target'].join('\n');
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: proposal }),
+    });
+    const created = JSON.parse(createResponse.body);
+    const seeded = [
+      { id: 'open', anchorKind: 'line', resolvedAt: null, messages: [] },
+      { id: 'resolved', anchorKind: 'line', resolvedAt: 123, messages: [] },
+      { id: 'diagram', anchorKind: 'diagram-element', resolvedAt: null, messages: [] },
+    ];
+    const commentPath = await seedReviewThreads(server, created, seeded);
+    const validMove = { threadId: 'open', startLine: 2, endLine: 2, quote: 'target' };
+    const requestPatch = (reviewId, secret, moves) => httpRequest(
+      `${server.appBaseUrl}/api/review/${reviewId}/anchors?secret=${encodeURIComponent(secret)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves }),
+      },
+    );
+
+    assert.equal((await requestPatch(created.reviewId, 'wrong', [validMove])).statusCode, 403);
+    assert.equal((await requestPatch('missing-review', 'anything', [validMove])).statusCode, 404);
+    assert.equal((await requestPatch(created.reviewId, created.secret, [
+      { ...validMove, threadId: 'missing-thread' },
+    ])).statusCode, 404);
+
+    const invalidBatches = [
+      [],
+      [{ ...validMove, threadId: 'resolved' }],
+      [{ ...validMove, threadId: 'diagram' }],
+      [{ ...validMove, startLine: 0 }],
+      [{ ...validMove, quote: 'not selected' }],
+    ];
+    for (const moves of invalidBatches) {
+      assert.equal((await requestPatch(created.reviewId, created.secret, moves)).statusCode, 422);
+      assert.deepEqual(JSON.parse(await readFile(commentPath, 'utf-8')).threads, seeded);
+    }
+  } finally {
+    await server.close();
+  }
+});
+
+test('PATCH /api/review/:id/anchors rejects an active collaboration room with 409', async () => {
+  const server = await startTestServer();
+  let socket;
+  try {
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: '# Plan\nTarget' }),
+    });
+    const created = JSON.parse(createResponse.body);
+    socket = new WebSocket(server.wsUrl(created.vaultPath));
+    await waitForOpen(socket);
+    await waitForCondition(() => server.server.roomRegistry.get(created.vaultPath)?.clients?.size > 0);
+
+    const response = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves: [
+          { threadId: 'thread-1', startLine: 2, endLine: 2, quote: 'Target' },
+        ] }),
+      },
+    );
+    assert.equal(response.statusCode, 409);
+  } finally {
+    socket?.close();
+    await server.close();
+  }
+});
+
+test('PATCH /api/review/:id/anchors returns 500 without changing proposal or sidecar when persistence fails', async () => {
+  const server = await startTestServer();
+  try {
+    const proposal = '# Plan\nTarget';
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: proposal }),
+    });
+    const created = JSON.parse(createResponse.body);
+    const seeded = [{ id: 'thread-1', anchorKind: 'line', resolvedAt: null, messages: [] }];
+    const commentPath = await seedReviewThreads(server, created, seeded);
+    const persistenceError = `write failed: ${join(server.tempRoot, 'private', 'comment-threads.json')}`;
+    server.server.vaultFileStore.writeCommentThreads = async () => ({ ok: false, error: persistenceError });
+
+    const response = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves: [
+          { threadId: 'thread-1', startLine: 2, endLine: 2, quote: 'Target' },
+        ] }),
+      },
+    );
+    assert.equal(response.statusCode, 500);
+    assert.deepEqual(JSON.parse(response.body), { error: 'Failed to persist comment anchors' });
+    assert.ok(!response.body.includes(persistenceError));
+    assert.equal(await readFile(join(server.vaultDir, created.vaultPath), 'utf-8'), proposal);
+    assert.deepEqual(JSON.parse(await readFile(commentPath, 'utf-8')).threads, seeded);
+  } finally {
+    await server.close();
+  }
+});
+
+test('PATCH /api/review/:id/anchors rejects a WebSocket upgrade while its sidecar write is reserved', async () => {
+  const server = await startTestServer();
+  let releaseWrite = () => {};
+  try {
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: '# Plan\nTarget' }),
+    });
+    const created = JSON.parse(createResponse.body);
+    await seedReviewThreads(server, created, [{
+      id: 'thread-1',
+      anchorKind: 'line',
+      anchorQuote: 'Target',
+      anchorStartLine: 2,
+      anchorEndLine: 2,
+      resolvedAt: null,
+      messages: [],
+    }]);
+
+    const originalWrite = server.server.vaultFileStore.writeCommentThreads.bind(server.server.vaultFileStore);
+    let markWriteStarted;
+    const writeStarted = new Promise((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const writeGate = new Promise((resolve) => {
+      releaseWrite = resolve;
+    });
+    server.server.vaultFileStore.writeCommentThreads = async (...args) => {
+      markWriteStarted();
+      await writeGate;
+      return originalWrite(...args);
+    };
+
+    const patchPending = httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ moves: [
+          { threadId: 'thread-1', startLine: 2, endLine: 2, quote: 'Target' },
+        ] }),
+      },
+    );
+    await writeStarted;
+
+    assert.equal(await websocketUpgradeStatus(server.wsUrl(created.vaultPath)), 409);
+    releaseWrite();
+    assert.equal((await patchPending).statusCode, 200);
+  } finally {
+    releaseWrite();
     await server.close();
   }
 });
