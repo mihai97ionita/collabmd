@@ -264,6 +264,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
     }
 
     const message = {
+      actorType: 'agent',
       body: normalizedBody,
       createdAt: Date.now(),
       editedAt: null,
@@ -271,6 +272,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
       peerId: '',
       reactions: [],
       userColor: '',
+      userId: '',
       userName: AGENT_USER_NAME,
     };
 

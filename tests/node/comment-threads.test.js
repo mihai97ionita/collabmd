@@ -100,6 +100,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
     elementId: 'shape-1',
     id: 'thread-diagram',
     messages: [{
+      actorType: 'human',
       body: 'Add the owner here',
       createdAt: 456,
       editedAt: null,
@@ -107,6 +108,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
       peerId: '',
       reactions: [],
       userColor: '',
+      userId: '',
       userName: 'Tester',
     }],
     resolvedAt: null,
@@ -225,4 +227,52 @@ test('comment thread serialization ignores malformed reactions', () => {
 
   const [serialized] = serializeCommentThreads(threads);
   assert.deepEqual(serialized.messages[0].reactions, []);
+});
+
+test('createMessageRecord defaults actorType to human when absent (backward compat)', () => {
+  const doc = new Y.Doc();
+  const threads = doc.getArray('comments');
+  const thread = createCommentThreadSharedType({
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 4,
+    anchorKind: 'line',
+    anchorQuote: 'Line quote',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 4,
+    id: 'thread-actor',
+    messages: [{
+      body: 'Old comment without actorType',
+      id: 'comment-old',
+      userName: 'Tester',
+    }],
+  });
+  threads.push([thread]);
+
+  const [serialized] = serializeCommentThreads(threads);
+  assert.equal(serialized.messages[0].actorType, 'human',
+    'absent actorType must default to human for backward compat');
+});
+
+test('createMessageRecord preserves actorType agent when set', () => {
+  const doc = new Y.Doc();
+  const threads = doc.getArray('comments');
+  const thread = createCommentThreadSharedType({
+    anchorEnd: { assoc: 0, type: null },
+    anchorEndLine: 4,
+    anchorKind: 'line',
+    anchorQuote: 'Line quote',
+    anchorStart: { assoc: 0, type: null },
+    anchorStartLine: 4,
+    id: 'thread-agent',
+    messages: [{
+      actorType: 'agent',
+      body: 'Agent reply',
+      id: 'comment-agent',
+      userName: 'Agent',
+    }],
+  });
+  threads.push([thread]);
+
+  const [serialized] = serializeCommentThreads(threads);
+  assert.equal(serialized.messages[0].actorType, 'agent');
 });

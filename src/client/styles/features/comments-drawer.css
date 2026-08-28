@@ -35,3 +35,34 @@
   overflow: auto;
   padding: var(--space-2) var(--space-2) var(--space-4);
 }
+
+/* Default accent for unread items — overridden inline per-item by
+   renderDrawer based on the last reaction emoji. */
+.comments-drawer-item {
+  --unread-accent: var(--color-comment);
+}
+
+/* Persistent highlight for the thread whose card is currently open,
+   so the user can track which comment they're reviewing as they
+   step through the drawer. */
+.comment-overview-thread.comments-drawer-item.is-active,
+.comment-overview-thread.comments-drawer-item.is-active:hover {
+  border-color: var(--border-comment-strong);
+  background: var(--surface-comment-record-hover);
+  box-shadow: inset 2px 0 0 0 var(--border-comment-active);
+}
+
+/* Read/unread state — unread threads (last interaction by the agent) get
+   an accent border and tinted background; read threads are dimmed. */
+.comment-overview-thread.comments-drawer-item.is-unread {
+  border-left: 3px solid var(--unread-accent, var(--color-comment));
+  background: color-mix(in oklab, var(--unread-accent, var(--color-comment)) 6%, transparent);
+}
+
+.comment-overview-thread.comments-drawer-item.is-read {
+  opacity: 0.62;
+}
+
+.comment-overview-thread.comments-drawer-item.is-read.is-active {
+  opacity: 1;
+}

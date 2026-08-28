@@ -109,6 +109,55 @@ export function getLatestGroupMessage(group) {
   }, null);
 }
 
+/**
+ * Derive the last interaction in a thread across all messages and reactions.
+ * Returns { timestamp, userId, lastReactionEmoji }.
+ * - userId is the stable identifier of whoever did the most recent
+ *   message or reaction. Empty string for agent messages (no userId).
+ * - lastReactionEmoji is the emoji of the most recent reaction, or null.
+ */
+export function getLastInteraction(thread) {
+  let latestTs = -1;
+  let userId = '';
+  let lastReactionEmoji = null;
+
+  for (const msg of thread?.messages ?? []) {
+    const msgTs = msg?.createdAt ?? 0;
+    if (msgTs > latestTs) {
+      latestTs = msgTs;
+      userId = msg?.userId ?? '';
+    }
+
+    for (const group of msg?.reactions ?? []) {
+      for (const user of group?.users ?? []) {
+        const reactTs = user?.reactedAt ?? 0;
+        if (reactTs > latestTs) {
+          latestTs = reactTs;
+          userId = user?.userId ?? '';
+          lastReactionEmoji = group.emoji ?? null;
+        }
+      }
+    }
+  }
+
+  return { timestamp: latestTs, userId, lastReactionEmoji };
+}
+
+const REACTION_ACCENT_MAP = {
+  '👍': 'var(--color-success)',
+  '❤️': 'var(--color-danger)',
+  '🎉': 'var(--color-primary)',
+  '👀': 'var(--color-text-muted)',
+  '🚀': 'var(--color-accent)',
+};
+
+export function getReactionAccentColor(emoji) {
+  if (typeof emoji !== 'string' || !emoji) {
+    return null;
+  }
+  return REACTION_ACCENT_MAP[emoji] ?? 'var(--color-comment)';
+}
+
 export function createRenderedCommentBody(body, className = 'comment-markdown') {
   const container = document.createElement('div');
   container.className = className;
@@ -159,7 +208,7 @@ export function createCommentOverviewThread({
   quoteNode.className = quoteClassName;
   quoteNode.textContent = quote;
   quoteSection.append(quoteLabel, quoteNode);
-  body.append(preview, quoteSection);
+  body.append(quoteSection, preview);
 
   const footer = document.createElement('div');
   footer.className = footerClassName;
