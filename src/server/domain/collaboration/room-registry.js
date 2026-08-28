@@ -2,10 +2,89 @@ export class RoomRegistry {
   constructor({ createRoom }) {
     this.createRoom = createRoom;
     this.rooms = new Map();
+    this.externalMutationQueues = new Map();
   }
 
   get(name) {
     return this.rooms.get(name);
+  }
+
+  isExternalMutationReserved(name) {
+    return this.externalMutationQueues.has(name);
+  }
+
+  async reserveExternalMutation(name) {
+    let queue = this.externalMutationQueues.get(name);
+    if (!queue) {
+      queue = { pending: 0, tail: Promise.resolve() };
+      this.externalMutationQueues.set(name, queue);
+    }
+
+    queue.pending += 1;
+    let releaseTurn;
+    const turn = new Promise((resolve) => {
+      releaseTurn = resolve;
+    });
+    const previous = queue.tail;
+    queue.tail = previous.catch(() => {}).then(() => turn);
+
+    const finish = () => {
+      releaseTurn();
+      queue.pending -= 1;
+      if (queue.pending === 0 && this.externalMutationQueues.get(name) === queue) {
+        this.externalMutationQueues.delete(name);
+      }
+    };
+
+    try {
+      await previous.catch(() => {});
+      const room = this.rooms.get(name);
+      if (room && !room.isDeleted?.()) {
+        if (room.hasActiveOrPendingClients?.() ?? room.clients?.size > 0) {
+          finish();
+          return { ok: false, reason: 'active-collaboration' };
+        }
+        await room.awaitExternalMutationBarrier?.();
+        if (room.hasActiveOrPendingClients?.() ?? room.clients?.size > 0) {
+          finish();
+          return { ok: false, reason: 'active-collaboration' };
+        }
+      }
+
+      let released = false;
+      return {
+        ok: true,
+        release: async ({ refreshFromDisk = false } = {}) => {
+          if (released) {
+            return;
+          }
+          released = true;
+          let retainedRoom;
+          try {
+            retainedRoom = this.rooms.get(name);
+            if (refreshFromDisk && retainedRoom && !retainedRoom.isDeleted?.()
+                && !(retainedRoom.hasActiveOrPendingClients?.() ?? retainedRoom.clients?.size > 0)) {
+              await retainedRoom.reloadFromDisk?.();
+            }
+          } catch (error) {
+            console.error(`[room:${name}] Failed to refresh after external mutation: ${error.message}`);
+            if (this.rooms.get(name) === retainedRoom) {
+              this.rooms.delete(name);
+            }
+            try {
+              await retainedRoom?.destroy?.();
+            } catch (destroyError) {
+              console.error(`[room:${name}] Failed to destroy stale room: ${destroyError.message}`);
+            }
+          } finally {
+            finish();
+          }
+        },
+      };
+    } catch (error) {
+      finish();
+      throw error;
+    }
   }
 
   getOrCreate(name) {

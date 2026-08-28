@@ -66,6 +66,79 @@ test('CollaborationRoom hydrates once for concurrent joins', async () => {
   assert.equal(room.doc.getText('codemirror').toString(), '# persisted');
 });
 
+test('CollaborationRoom tracks client initialization before hydration completes', async () => {
+  let releaseHydration;
+  const hydrationGate = new Promise((resolve) => {
+    releaseHydration = resolve;
+  });
+  const room = new CollaborationRoom({
+    maxBufferedAmountBytes: 1024,
+    name: 'pending-client.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readEditableVaultContent() {
+        await hydrationGate;
+        return '# persisted';
+      },
+      async persistCollaborationState() {},
+    },
+  });
+  const socket = createSocket();
+
+  const addClientPromise = room.addClient(socket);
+  assert.equal(room.hasActiveOrPendingClients(), true);
+  assert.equal(room.pendingClientInitializations, 1);
+
+  releaseHydration();
+  await addClientPromise;
+  assert.equal(room.pendingClientInitializations, 0);
+  assert.equal(room.clients.has(socket), true);
+  await room.destroy();
+});
+
+test('CollaborationRoom external mutation barrier waits for final persistence', async () => {
+  let persistStarted;
+  let releasePersist;
+  const persistStartedPromise = new Promise((resolve) => {
+    persistStarted = resolve;
+  });
+  const persistGate = new Promise((resolve) => {
+    releasePersist = resolve;
+  });
+  const room = new CollaborationRoom({
+    idleGraceMs: 60_000,
+    maxBufferedAmountBytes: 1024,
+    name: 'final-persist.md',
+    onEmpty: () => {},
+    vaultFileStore: {
+      async readEditableVaultContent() {
+        return '# persisted';
+      },
+      async persistCollaborationState() {
+        persistStarted();
+        await persistGate;
+      },
+    },
+  });
+  await room.hydrate();
+  const socket = createSocket();
+  await room.addClient(socket);
+  room.removeClient(socket);
+  await persistStartedPromise;
+
+  let barrierPassed = false;
+  const barrier = room.awaitExternalMutationBarrier().then(() => {
+    barrierPassed = true;
+  });
+  await Promise.resolve();
+  assert.equal(barrierPassed, false);
+
+  releasePersist();
+  await barrier;
+  assert.equal(barrierPassed, true);
+  await room.destroy();
+});
+
 test('CollaborationRoom retries hydration after a transient read failure', async () => {
   let readCount = 0;
   const room = new CollaborationRoom({
@@ -742,6 +815,7 @@ test('CollaborationRoom hydrates and persists Excalidraw rooms regardless of ext
 test('CollaborationRoom keeps Excalidraw comments in the collaboration sidecar', async () => {
   const writes = [];
   const diagramThread = {
+    anchorEndLine: null,
     anchorKind: 'diagram-element',
     anchorPoint: { x: 140, y: 80 },
     anchorQuote: 'Architecture node',
@@ -753,6 +827,7 @@ test('CollaborationRoom keeps Excalidraw comments in the collaboration sidecar',
       x: 100,
       y: 60,
     },
+    anchorStartLine: null,
     createdAt: 1,
     createdByColor: '',
     createdByName: 'Andes',
@@ -760,6 +835,7 @@ test('CollaborationRoom keeps Excalidraw comments in the collaboration sidecar',
     elementId: 'shape-1',
     id: 'thread-diagram',
     messages: [{
+      actorType: 'human',
       body: 'Add the owner here',
       createdAt: 1,
       editedAt: null,
@@ -767,6 +843,7 @@ test('CollaborationRoom keeps Excalidraw comments in the collaboration sidecar',
       peerId: '',
       reactions: [],
       userColor: '',
+      userId: '',
       userName: 'Andes',
     }],
     resolvedAt: null,

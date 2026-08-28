@@ -227,6 +227,7 @@ export class CollaborationRoom {
     this.doc = new Y.Doc({ gc: true });
     this.awareness = new awarenessProtocol.Awareness(this.doc);
     this.clients = new Set();
+    this.pendingClientInitializations = 0;
     this.clientStates = new WeakMap();
     this.hydrated = false;
     this.hydratePromise = null;
@@ -727,28 +728,46 @@ export class CollaborationRoom {
     return sendMessage.call(this, ws, initialSyncMessage, this);
   }
 
+  hasActiveOrPendingClients() {
+    return this.clients.size > 0 || this.pendingClientInitializations > 0;
+  }
+
+  async awaitExternalMutationBarrier() {
+    while (this.finalizePromise || this.activePersistPromise) {
+      await Promise.allSettled([
+        this.finalizePromise,
+        this.activePersistPromise,
+      ].filter(Boolean));
+    }
+  }
+
   async addClient(ws, { sendInitialSync: shouldSendInitialSync = true } = {}) {
     this.shutdownGeneration += 1;
     clearTimeout(this.destroyTimer);
     this.destroyTimer = null;
-    await this.hydrate();
+    this.pendingClientInitializations += 1;
+    try {
+      await this.hydrate();
 
-    this.ensureClientState(ws);
-    this.clients.add(ws);
+      this.ensureClientState(ws);
+      this.clients.add(ws);
 
-    if (shouldSendInitialSync) {
-      this.sendInitialSync(ws);
-    }
+      if (shouldSendInitialSync) {
+        this.sendInitialSync(ws);
+      }
 
-    const awarenessStates = this.awareness.getStates();
-    if (awarenessStates.size > 0) {
-      const awarenessEncoder = encoding.createEncoder();
-      encoding.writeVarUint(awarenessEncoder, MSG_AWARENESS);
-      encoding.writeVarUint8Array(
-        awarenessEncoder,
-        awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())),
-      );
-      sendMessage.call(this, ws, encoding.toUint8Array(awarenessEncoder), this);
+      const awarenessStates = this.awareness.getStates();
+      if (awarenessStates.size > 0) {
+        const awarenessEncoder = encoding.createEncoder();
+        encoding.writeVarUint(awarenessEncoder, MSG_AWARENESS);
+        encoding.writeVarUint8Array(
+          awarenessEncoder,
+          awarenessProtocol.encodeAwarenessUpdate(this.awareness, Array.from(awarenessStates.keys())),
+        );
+        sendMessage.call(this, ws, encoding.toUint8Array(awarenessEncoder), this);
+      }
+    } finally {
+      this.pendingClientInitializations -= 1;
     }
   }
 

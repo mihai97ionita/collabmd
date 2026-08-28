@@ -24,6 +24,47 @@ function normalizeAnchorKindValue(value) {
   return typeof value === 'string' ? value : '';
 }
 
+function anchorMoveFailure(code, error, threadId = null) {
+  return { code, error, ok: false, ...(threadId ? { threadId } : {}) };
+}
+
+function validateAnchorMove(move, threads, proposalLines) {
+  if (!move || typeof move !== 'object' || Array.isArray(move)
+      || typeof move.threadId !== 'string' || !move.threadId.trim()
+      || typeof move.quote !== 'string') {
+    return anchorMoveFailure('invalid-moves', 'Each move must include threadId, startLine, endLine, and quote');
+  }
+
+  const matches = threads.filter((thread) => thread?.id === move.threadId);
+  if (matches.length === 0) {
+    return anchorMoveFailure('thread-not-found', 'Comment thread not found', move.threadId);
+  }
+  if (matches.length > 1) {
+    return anchorMoveFailure('duplicate-thread-id', 'Comment thread id is duplicated', move.threadId);
+  }
+
+  const thread = matches[0];
+  if (thread.resolvedAt !== null && thread.resolvedAt !== undefined) {
+    return anchorMoveFailure('resolved-thread', 'Resolved comment threads cannot be moved', move.threadId);
+  }
+  if (detectAnchorProvider(thread) !== ANCHOR_PROVIDER.TEXT) {
+    return anchorMoveFailure('unsupported-anchor', 'Only line or text comment threads can be moved', move.threadId);
+  }
+
+  if (!Number.isInteger(move.startLine) || !Number.isInteger(move.endLine)
+      || move.startLine < 1 || move.endLine < move.startLine || move.endLine > proposalLines.length) {
+    return anchorMoveFailure('invalid-range', 'Move line range is invalid', move.threadId);
+  }
+
+  const normalizedQuote = normalizeCommentQuoteForComparison(move.quote);
+  const selectedLines = proposalLines.slice(move.startLine - 1, move.endLine).join('\n');
+  if (!normalizedQuote || !normalizeCommentQuoteForComparison(selectedLines).includes(normalizedQuote)) {
+    return anchorMoveFailure('invalid-quote', 'Move quote is not contained in the selected lines', move.threadId);
+  }
+
+  return { ok: true };
+}
+
 // Determines which reconciliation strategy applies to a thread. Derived from
 // the persisted record shape, not a stored field, so existing sidecars need no
 // migration. Excalidraw records are diagram-element anchors with no diagramKey.
@@ -164,6 +205,48 @@ const STRATEGIES = Object.freeze({
 export function getAnchorStrategy(anchor) {
   const provider = detectAnchorProvider(anchor);
   return provider ? STRATEGIES[provider] : null;
+}
+
+// Applies explicit human/agent-selected line moves as one pure batch. Every
+// move is validated first so callers can persist the returned sidecar once.
+export function moveCommentThreadAnchors(threads, moves, currentProposal) {
+  if (!Array.isArray(moves) || moves.length === 0) {
+    return anchorMoveFailure('invalid-moves', 'At least one anchor move is required');
+  }
+
+  const sourceThreads = Array.isArray(threads) ? threads : [];
+  const proposalLines = String(currentProposal ?? '').split('\n');
+  const seenThreadIds = new Set();
+
+  for (const move of moves) {
+    const validation = validateAnchorMove(move, sourceThreads, proposalLines);
+    if (!validation.ok) {
+      return validation;
+    }
+    if (seenThreadIds.has(move.threadId)) {
+      return anchorMoveFailure('duplicate-thread-id', 'Each comment thread can be moved only once', move.threadId);
+    }
+    seenThreadIds.add(move.threadId);
+  }
+
+  const movesByThreadId = new Map(moves.map((move) => [move.threadId, move]));
+  const movedThreads = sourceThreads.map((thread) => {
+    const move = movesByThreadId.get(thread?.id);
+    if (!move) {
+      return thread;
+    }
+    return {
+      ...thread,
+      anchorEnd: null,
+      anchorEndLine: move.endLine,
+      anchorQuote: move.quote,
+      anchorStart: null,
+      anchorStartLine: move.startLine,
+      anchorStatus: ANCHOR_STATUS.RESOLVED,
+    };
+  });
+
+  return { moved: moves.map((move) => move.threadId), ok: true, threads: movedThreads };
 }
 
 // Reconciles a single persisted thread record against a new document text.

@@ -196,6 +196,25 @@ test('WebSocket collaboration rejects unauthorized clients when password auth is
   assert.equal(getMessageType(firstMessage), MSG_SYNC);
 });
 
+test('WebSocket collaboration does not disclose reserved paths before password authentication', async (t) => {
+  const app = await startTestServer({
+    auth: {
+      password: 'ws-secret-password',
+      strategy: 'password',
+    },
+  });
+  t.after(() => app.close());
+  const reservation = await app.server.roomRegistry.reserveExternalMutation('test.md');
+  assert.equal(reservation.ok, true);
+  t.after(() => reservation.release());
+
+  const unauthorizedSocket = new WebSocket(app.wsUrl('test.md'));
+  const unauthorizedResponse = await waitForUnexpectedResponse(unauthorizedSocket);
+
+  assert.equal(unauthorizedResponse.statusCode, 401);
+  unauthorizedSocket.terminate();
+});
+
 test('WebSocket server rejects oversized payloads', async (t) => {
   const app = await startTestServer({
     wsMaxPayloadBytes: 128,

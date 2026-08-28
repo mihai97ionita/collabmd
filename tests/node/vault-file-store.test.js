@@ -1,11 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { access, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises';
+import { access, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import sharp from 'sharp';
 
 import { createImageBuffer, createOrientedJpegBuffer } from './helpers/image-fixtures.js';
+import { SidecarStore } from '../../src/server/infrastructure/persistence/sidecar-store.js';
 import { VaultFileStore } from '../../src/server/infrastructure/persistence/vault-file-store.js';
 
 async function createVaultStore() {
@@ -182,6 +183,48 @@ test('VaultFileStore persists collaboration sidecars without touching vault cont
   assert.equal(await readFile(join(vaultDir, 'README.md'), 'utf-8'), '# Readme\r\n');
   assert.equal(afterStat.mtimeMs, beforeStat.mtimeMs);
   assert.deepEqual(Array.from(await store.readCollaborationSnapshot('README.md') ?? []), Array.from(snapshot));
+});
+
+test('SidecarStore preserves comment threads and removes its temp file when replacement fails', async (t) => {
+  const { cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+  const originalThreads = [{ id: 'thread-original', messages: [] }];
+  const replacementThreads = [{ id: 'thread-replacement', messages: [] }];
+  const originalStore = new SidecarStore({ vaultDir });
+  await originalStore.writeCommentThreads('README.md', originalThreads);
+  const sidecarPath = originalStore.getCommentThreadPath('README.md');
+  const originalBytes = await readFile(sidecarPath);
+  let tempPath = null;
+  const failingStore = new SidecarStore({
+    vaultDir,
+    renameFile: async (sourcePath) => {
+      tempPath = sourcePath;
+      throw new Error('injected rename failure');
+    },
+  });
+
+  const result = await failingStore.writeCommentThreads('README.md', replacementThreads);
+
+  assert.deepEqual(result, { ok: false, error: 'injected rename failure' });
+  assert.deepEqual(await readFile(sidecarPath), originalBytes);
+  assert.deepEqual(await failingStore.readCommentThreads('README.md'), originalThreads);
+  assert.notEqual(tempPath, sidecarPath);
+  assert.equal(await pathExists(tempPath), false);
+  assert.deepEqual(await readdir(join(vaultDir, '.collabmd/comments')), ['README.md.json']);
+});
+
+test('SidecarStore successfully replaces non-empty comment threads', async (t) => {
+  const { cleanup, vaultDir } = await createVaultStore();
+  t.after(cleanup);
+  const store = new SidecarStore({ vaultDir });
+  await store.writeCommentThreads('README.md', [{ id: 'thread-original', messages: [] }]);
+  const replacementThreads = [{ id: 'thread-replacement', messages: [] }];
+
+  const result = await store.writeCommentThreads('README.md', replacementThreads);
+
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(await store.readCommentThreads('README.md'), replacementThreads);
+  assert.deepEqual(await readdir(join(vaultDir, '.collabmd/comments')), ['README.md.json']);
 });
 
 test('VaultFileStore reads comment overview from comment sidecars for supported files', async (t) => {
