@@ -803,6 +803,9 @@ function positionCard(card) {
     }
   }
 
+  const maxTop = Math.max(viewportHeight - cardRect.height - 16, 16);
+  top = clamp(top, 16, maxTop);
+
   this.cardRoot.style.left = `${left}px`;
   this.cardRoot.style.top = `${top}px`;
   this.cardRoot.style.width = `${Math.min(Math.max(cardRect.width, COMMENT_CARD_WIDTH), viewportWidth - 32)}px`;

@@ -218,6 +218,44 @@ describe('CommentUiController browser behavior', () => {
     }
   });
 
+  it('keeps a drawer-selected comment visible when its anchor is below the viewport', () => {
+    const setup = createController();
+    controller = setup.controller;
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 });
+
+    try {
+      controller.session.getCommentAnchorClientRect = () => createRect({
+        left: 20,
+        top: 4291,
+        width: 320,
+        height: 24,
+      });
+      controller.setThreads([
+        {
+          anchor: { endLine: 175, quote: 'Removed source text', startLine: 175 },
+          createdAt: 1,
+          createdByName: 'Alice',
+          id: 'thread-1',
+          messages: [{ body: 'Keep this conversation visible', createdAt: 2, id: 'message-1', reactions: [], userName: 'Alice' }],
+        },
+      ]);
+      controller.setDrawerOpen(true);
+      setup.commentsDrawer.querySelector('.comments-drawer-item').click();
+
+      const root = controller.cardRoot;
+      const card = root.querySelector('.comment-card');
+      card.getBoundingClientRect = () => createRect({ left: 20, top: 4291, width: 520, height: 700 });
+      controller.repositionActiveCard();
+
+      expect(Number.parseFloat(root.style.top)).toBeGreaterThanOrEqual(16);
+      expect(Number.parseFloat(root.style.top)).toBeLessThanOrEqual(184);
+      expect(root.textContent).toContain('Keep this conversation visible');
+    } finally {
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalInnerHeight });
+    }
+  });
+
   it('updates selection state and enables the toolbar action', () => {
     const setup = createController();
     controller = setup.controller;
