@@ -2,6 +2,7 @@ import {
   COMMENT_SELECTION_REVEAL_DELAY_MS,
   areAnchorsEqual,
   getAnchorGroupKey,
+  getLastInteraction,
   sortThreads,
   isTextSelectionAnchor,
 } from './comment-ui-shared.js';
@@ -267,9 +268,12 @@ function getThreadGroups() {
       return;
     }
 
+    const interaction = getLastInteraction(thread);
     groups.set(key, {
       anchor: thread.anchor,
+      isUnread: interaction.actorType === 'agent',
       key,
+      lastReactionEmoji: interaction.lastReactionEmoji,
       threads: [thread],
     });
   });

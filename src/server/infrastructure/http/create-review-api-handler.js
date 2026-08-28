@@ -264,6 +264,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
     }
 
     const message = {
+      actorType: 'agent',
       body: normalizedBody,
       createdAt: Date.now(),
       editedAt: null,

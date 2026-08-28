@@ -161,3 +161,50 @@ test('serializeReviewToMarkdown omits the thread id comment when the thread has 
   const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
   assert.ok(!result.includes('<!-- thread-id'), 'no thread id comment when id is empty');
 });
+
+test('serializeReviewToMarkdown renders reactions with UTC timestamps as sub-bullets', () => {
+  const thread = makeThread({
+    messages: [{
+      body: 'Looks good.',
+      createdAt: Date.parse('2026-08-26T14:03:00Z'),
+      id: 'c1',
+      userName: 'imihai',
+      reactions: [
+        {
+          emoji: '👍',
+          users: [
+            { reactedAt: Date.parse('2026-08-26T14:05:00Z'), userColor: '', userId: 'u1', userName: 'Alice' },
+            { reactedAt: Date.parse('2026-08-26T14:06:00Z'), userColor: '', userId: 'u2', userName: 'Bob' },
+          ],
+        },
+        {
+          emoji: '❤️',
+          users: [
+            { reactedAt: Date.parse('2026-08-26T14:07:00Z'), userColor: '', userId: 'u1', userName: 'Alice' },
+          ],
+        },
+      ],
+    }],
+  });
+  const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
+  assert.ok(result.includes('👍'), 'thumbs up emoji must appear');
+  assert.ok(result.includes('Alice (2026-08-26 14:05)'), 'first reactor with UTC timestamp must appear');
+  assert.ok(result.includes('Bob (2026-08-26 14:06)'), 'second reactor with UTC timestamp must appear');
+  assert.ok(result.includes('❤️'), 'heart emoji must appear');
+  assert.ok(result.includes('Alice (2026-08-26 14:07)'), 'heart reactor with UTC timestamp must appear');
+});
+
+test('serializeReviewToMarkdown omits reaction sub-bullets when there are no reactions', () => {
+  const thread = makeThread({
+    messages: [{
+      body: 'No reactions here.',
+      createdAt: Date.parse('2026-08-26T14:03:00Z'),
+      id: 'c1',
+      userName: 'imihai',
+      reactions: [],
+    }],
+  });
+  const result = serializeReviewToMarkdown({ proposalMarkdown: '# Plan\n', threads: [thread] });
+  assert.ok(!result.includes('  - 👍'), 'no reaction sub-bullet when reactions array is empty');
+  assert.ok(!result.includes('❤️'), 'no heart emoji when reactions array is empty');
+});

@@ -444,10 +444,14 @@ function createThreadElement(thread) {
 
   thread.messages.forEach((message, index) => {
     article.appendChild(this.createMessageElement(thread, message, {
-      actions: index === 0 ? actions : null,
+      actions: null,
       isThreadStart: index === 0,
     }));
   });
+
+  // Thread-level actions (Reply, Resolve) appear after the last message so
+  // the user can reply at the bottom of the conversation, not at the top.
+  article.appendChild(actions);
 
   if (this.activeCard?.replyThreadId === thread.id) {
     article.appendChild(this.createReplyComposer(thread));

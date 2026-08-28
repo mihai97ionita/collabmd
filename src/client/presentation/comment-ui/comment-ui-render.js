@@ -2,6 +2,7 @@ import {
   createCommentOverviewThread,
   formatAnchorLabel,
   getLatestGroupMessage,
+  getReactionAccentColor,
 } from './comment-ui-shared.js';
 
 /**
@@ -99,6 +100,14 @@ function renderDrawer() {
       timestamp: latestMessage ? this.formatTimestamp(latestMessage.createdAt) : '',
     });
     button.classList.toggle('is-active', this.activeCard?.groupKey === group.key);
+    button.classList.toggle('is-unread', group.isUnread);
+    button.classList.toggle('is-read', !group.isUnread);
+    if (group.isUnread) {
+      const accent = getReactionAccentColor(group.lastReactionEmoji);
+      if (accent) {
+        button.style.setProperty('--unread-accent', accent);
+      }
+    }
     button.addEventListener('pointerdown', (event) => {
       event.preventDefault();
     });

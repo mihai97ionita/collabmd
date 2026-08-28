@@ -46,13 +46,36 @@ function renderThreadHeading(thread) {
   return `${THREAD_HEADING_PREFIX}${lineRange}${quoteSuffix}${resolvedSuffix}`;
 }
 
+function renderReactions(reactions) {
+  if (!Array.isArray(reactions) || reactions.length === 0) {
+    return '';
+  }
+
+  const lines = reactions
+    .filter((group) => group && group.emoji && Array.isArray(group.users) && group.users.length > 0)
+    .map((group) => {
+      const users = group.users
+        .map((user) => {
+          const name = user?.userName || 'Anonymous';
+          const date = formatCommentDate(user?.reactedAt);
+          return date ? `${name} (${date})` : name;
+        })
+        .join(', ');
+      return `  - ${group.emoji} ${users}`;
+    });
+
+  return lines.length > 0 ? lines.join('\n') : '';
+}
+
 function renderMessage(message) {
   const author = message.userName || 'Anonymous';
   const date = formatCommentDate(message.createdAt);
   const dateSuffix = date ? ` (${date})` : '';
   const editedSuffix = Number.isFinite(message.editedAt) ? ' (edited)' : '';
   const body = typeof message.body === 'string' ? message.body.trim() : '';
-  return `- **@${author}**${dateSuffix}${editedSuffix}: ${body}`;
+  const messageLine = `- **@${author}**${dateSuffix}${editedSuffix}: ${body}`;
+  const reactionsBlock = renderReactions(message.reactions);
+  return reactionsBlock ? `${messageLine}\n${reactionsBlock}` : messageLine;
 }
 
 function renderThreadId(thread) {

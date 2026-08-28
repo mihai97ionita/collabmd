@@ -200,6 +200,13 @@ function serializeCommentReactions(reactions) {
   return Array.from(groupsByEmoji.values());
 }
 
+const ACTOR_TYPES = new Set(['human', 'agent']);
+
+function normalizeActorType(value) {
+  const normalized = asString(value);
+  return ACTOR_TYPES.has(normalized) ? normalized : 'human';
+}
+
 function createMessageRecord(message) {
   const body = normalizeCommentBody(readRecordValue(message, 'body'));
   if (!body) {
@@ -210,6 +217,7 @@ function createMessageRecord(message) {
 
   return {
     body,
+    actorType: normalizeActorType(readRecordValue(message, 'actorType')),
     createdAt: asFiniteNumber(readRecordValue(message, 'createdAt')) ?? Date.now(),
     editedAt: editedAt ?? null,
     id: asString(readRecordValue(message, 'id')) || createCommentId('comment'),

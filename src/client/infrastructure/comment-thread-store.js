@@ -13,6 +13,7 @@ import {
 
 function createCommentMessage({ body, user }) {
   return {
+    actorType: 'human',
     body,
     createdAt: Date.now(),
     id: createCommentId('comment'),
@@ -462,10 +463,17 @@ export class CommentThreadStore {
 
     const anchorStart = this.resolveCommentPosition(normalizedAnchor.anchorStart);
     const anchorEnd = this.resolveCommentPosition(normalizedAnchor.anchorEnd);
-    const startIndex = anchorStart?.index ?? state.doc.line(normalizedAnchor.anchorStartLine).from;
+    // Clamp to the current document length — a stale anchor (from a
+    // shortened proposal) can reference a line past the end of the doc.
+    const lineCount = state.doc.lines;
+    const fallbackStartLine = Math.min(
+      Math.max(normalizedAnchor.anchorStartLine ?? 1, 1),
+      lineCount,
+    );
+    const startIndex = anchorStart?.index ?? state.doc.line(fallbackStartLine).from;
     const fallbackEndLine = Math.min(
-      Math.max(normalizedAnchor.anchorEndLine ?? normalizedAnchor.anchorStartLine, normalizedAnchor.anchorStartLine),
-      state.doc.lines,
+      Math.max(normalizedAnchor.anchorEndLine ?? fallbackStartLine, fallbackStartLine),
+      lineCount,
     );
     const endIndex = anchorEnd?.index ?? state.doc.line(fallbackEndLine).to;
     const startLine = state.doc.lineAt(startIndex).number;

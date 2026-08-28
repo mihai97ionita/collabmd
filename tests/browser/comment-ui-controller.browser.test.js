@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { CommentUiController } from '../../src/client/presentation/comment-ui-controller.js';
+import { getLastInteraction } from '../../src/client/presentation/comment-ui/comment-ui-shared.js';
 
 function createRect({ left = 0, top = 0, width = 0, height = 0 } = {}) {
   return {
@@ -319,7 +320,7 @@ describe('CommentUiController browser behavior', () => {
     expect(controller.reactionPicker).toBeNull();
   });
 
-  it('shows the initial comment author once with thread actions in the message header', () => {
+  it('shows the initial comment author once with thread actions after the last message', () => {
     const setup = createController();
     controller = setup.controller;
 
@@ -351,9 +352,10 @@ describe('CommentUiController browser behavior', () => {
     expect(controller.cardRoot.querySelectorAll('.comment-message-card-author')).toHaveLength(1);
     expect(controller.cardRoot.querySelector('.comment-message-card-author')?.textContent).toBe('Alice');
     expect(controller.cardRoot.querySelector('.comment-thread-card-author')).toBeNull();
-    expect(
-      controller.cardRoot.querySelector('.comment-message-card-meta > .comment-thread-card-actions'),
-    ).not.toBeNull();
+    const threadActions = controller.cardRoot.querySelector('.comment-thread-card > .comment-thread-card-actions');
+    expect(threadActions).not.toBeNull();
+    expect(Array.from(threadActions?.querySelectorAll('.comment-thread-card-action') ?? []).map((b) => b.textContent))
+      .toEqual(['Reply', 'Resolve']);
     expect(controller.cardRoot.querySelector('.comment-message-card')?.classList.contains('is-thread-start')).toBe(true);
   });
 
@@ -379,7 +381,7 @@ describe('CommentUiController browser behavior', () => {
     });
 
     expect(Array.from(controller.cardRoot.querySelectorAll('.comment-thread-card-action')).map((button) => button.textContent))
-      .toEqual(['Reply', 'Resolve', 'Edit']);
+      .toEqual(['Edit', 'Reply', 'Resolve']);
   });
 
   it('preserves a new comment draft when thread updates trigger a card rerender', async () => {
@@ -542,6 +544,80 @@ describe('CommentUiController browser behavior', () => {
     expect(controller.editorLayer.querySelector('.comment-editor-badge')).toBe(editorBadge);
     expect(controller.previewLayer.querySelector('.comment-preview-badge')).toBeNull();
     expect(editorBadge.classList.contains('is-hovered')).toBe(true);
+  });
+
+  it('marks a thread unread when the last message is by an agent', () => {
+    const setup = createController();
+    controller = setup.controller;
+    controller.setThreads([
+      {
+        anchor: { startLine: 1, endLine: 1, quote: 'Line 1' },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [
+          { actorType: 'human', body: 'Human comment', createdAt: 2, id: 'm1', reactions: [], userName: 'Alice' },
+          { actorType: 'agent', body: 'Agent reply', createdAt: 3, id: 'm2', reactions: [], userName: 'Agent' },
+        ],
+      },
+    ]);
+    const groups = controller.getThreadGroups();
+    expect(groups[0].isUnread).toBe(true);
+  });
+
+  it('marks a thread read when the last message is by a human', () => {
+    const setup = createController();
+    controller = setup.controller;
+    controller.setThreads([
+      {
+        anchor: { startLine: 1, endLine: 1, quote: 'Line 1' },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [
+          { actorType: 'agent', body: 'Agent reply', createdAt: 2, id: 'm1', reactions: [], userName: 'Agent' },
+          { actorType: 'human', body: 'Human reply', createdAt: 3, id: 'm2', reactions: [], userName: 'Alice' },
+        ],
+      },
+    ]);
+    const groups = controller.getThreadGroups();
+    expect(groups[0].isUnread).toBe(false);
+  });
+
+  it('marks a thread read when a human reaction is the last interaction', () => {
+    const setup = createController();
+    controller = setup.controller;
+    controller.setThreads([
+      {
+        anchor: { startLine: 1, endLine: 1, quote: 'Line 1' },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [
+          {
+            actorType: 'agent',
+            body: 'Agent reply',
+            createdAt: 2,
+            id: 'm1',
+            reactions: [{
+              emoji: '👍',
+              users: [{ reactedAt: 5, userColor: '', userId: 'u1', userName: 'Alice' }],
+            }],
+            userName: 'Agent',
+          },
+        ],
+      },
+    ]);
+    const groups = controller.getThreadGroups();
+    expect(groups[0].isUnread).toBe(false);
+    expect(groups[0].lastReactionEmoji).toBe('👍');
+  });
+
+  it('defaults to human (read) when actorType is absent on old messages', () => {
+    const interaction = getLastInteraction({
+      messages: [{ body: 'Old comment', createdAt: 1, id: 'm1', userName: 'Tester' }],
+    });
+    expect(interaction.actorType).toBe('human');
   });
 });
 
