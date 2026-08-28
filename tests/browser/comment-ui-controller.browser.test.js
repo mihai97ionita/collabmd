@@ -546,7 +546,7 @@ describe('CommentUiController browser behavior', () => {
     expect(editorBadge.classList.contains('is-hovered')).toBe(true);
   });
 
-  it('marks a thread unread when the last message is by an agent', () => {
+  it('marks a thread unread when the last message is not by the viewing user', () => {
     const setup = createController();
     controller = setup.controller;
     controller.setThreads([
@@ -556,8 +556,8 @@ describe('CommentUiController browser behavior', () => {
         createdByName: 'Alice',
         id: 'thread-1',
         messages: [
-          { actorType: 'human', body: 'Human comment', createdAt: 2, id: 'm1', reactions: [], userName: 'Alice' },
-          { actorType: 'agent', body: 'Agent reply', createdAt: 3, id: 'm2', reactions: [], userName: 'Agent' },
+          { actorType: 'human', body: 'My comment', createdAt: 2, id: 'm1', reactions: [], userId: 'local-user', userName: 'Me' },
+          { actorType: 'agent', body: 'Agent reply', createdAt: 3, id: 'm2', reactions: [], userId: '', userName: 'Agent' },
         ],
       },
     ]);
@@ -565,7 +565,7 @@ describe('CommentUiController browser behavior', () => {
     expect(groups[0].isUnread).toBe(true);
   });
 
-  it('marks a thread read when the last message is by a human', () => {
+  it('marks a thread read when the last message is by the viewing user', () => {
     const setup = createController();
     controller = setup.controller;
     controller.setThreads([
@@ -575,8 +575,8 @@ describe('CommentUiController browser behavior', () => {
         createdByName: 'Alice',
         id: 'thread-1',
         messages: [
-          { actorType: 'agent', body: 'Agent reply', createdAt: 2, id: 'm1', reactions: [], userName: 'Agent' },
-          { actorType: 'human', body: 'Human reply', createdAt: 3, id: 'm2', reactions: [], userName: 'Alice' },
+          { actorType: 'agent', body: 'Agent reply', createdAt: 2, id: 'm1', reactions: [], userId: '', userName: 'Agent' },
+          { actorType: 'human', body: 'My reply', createdAt: 3, id: 'm2', reactions: [], userId: 'local-user', userName: 'Me' },
         ],
       },
     ]);
@@ -584,7 +584,26 @@ describe('CommentUiController browser behavior', () => {
     expect(groups[0].isUnread).toBe(false);
   });
 
-  it('marks a thread read when a human reaction is the last interaction', () => {
+  it('marks a thread unread when another human (not the viewing user) had the last word', () => {
+    const setup = createController();
+    controller = setup.controller;
+    controller.setThreads([
+      {
+        anchor: { startLine: 1, endLine: 1, quote: 'Line 1' },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [
+          { actorType: 'human', body: 'My comment', createdAt: 2, id: 'm1', reactions: [], userId: 'local-user', userName: 'Me' },
+          { actorType: 'human', body: 'Other human reply', createdAt: 3, id: 'm2', reactions: [], userId: 'other-user', userName: 'Bob' },
+        ],
+      },
+    ]);
+    const groups = controller.getThreadGroups();
+    expect(groups[0].isUnread).toBe(true);
+  });
+
+  it('marks a thread read when the viewing user reacted last', () => {
     const setup = createController();
     controller = setup.controller;
     controller.setThreads([
@@ -601,8 +620,9 @@ describe('CommentUiController browser behavior', () => {
             id: 'm1',
             reactions: [{
               emoji: '👍',
-              users: [{ reactedAt: 5, userColor: '', userId: 'u1', userName: 'Alice' }],
+              users: [{ reactedAt: 5, userColor: '', userId: 'local-user', userName: 'Me' }],
             }],
+            userId: '',
             userName: 'Agent',
           },
         ],
@@ -613,11 +633,41 @@ describe('CommentUiController browser behavior', () => {
     expect(groups[0].lastReactionEmoji).toBe('👍');
   });
 
-  it('defaults to human (read) when actorType is absent on old messages', () => {
+  it('marks a thread unread when another user reacted last', () => {
+    const setup = createController();
+    controller = setup.controller;
+    controller.setThreads([
+      {
+        anchor: { startLine: 1, endLine: 1, quote: 'Line 1' },
+        createdAt: 1,
+        createdByName: 'Alice',
+        id: 'thread-1',
+        messages: [
+          {
+            actorType: 'human',
+            body: 'My comment',
+            createdAt: 2,
+            id: 'm1',
+            reactions: [{
+              emoji: '❤️',
+              users: [{ reactedAt: 5, userColor: '', userId: 'other-user', userName: 'Bob' }],
+            }],
+            userId: 'local-user',
+            userName: 'Me',
+          },
+        ],
+      },
+    ]);
+    const groups = controller.getThreadGroups();
+    expect(groups[0].isUnread).toBe(true);
+    expect(groups[0].lastReactionEmoji).toBe('❤️');
+  });
+
+  it('returns empty userId for old messages without userId (backward compat)', () => {
     const interaction = getLastInteraction({
       messages: [{ body: 'Old comment', createdAt: 1, id: 'm1', userName: 'Tester' }],
     });
-    expect(interaction.actorType).toBe('human');
+    expect(interaction.userId).toBe('');
   });
 });
 

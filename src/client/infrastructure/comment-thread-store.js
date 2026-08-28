@@ -20,6 +20,7 @@ function createCommentMessage({ body, user }) {
     peerId: user?.peerId ?? '',
     reactions: [],
     userColor: user?.color ?? '',
+    userId: user?.userId ?? '',
     userName: user?.name ?? 'Anonymous',
   };
 }

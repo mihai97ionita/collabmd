@@ -224,6 +224,7 @@ function createMessageRecord(message) {
     peerId: asString(readRecordValue(message, 'peerId')),
     reactions: serializeCommentReactions(readRecordValue(message, 'reactions')),
     userColor: asString(readRecordValue(message, 'userColor')),
+    userId: asString(readRecordValue(message, 'userId')),
     userName: asString(readRecordValue(message, 'userName')) || 'Anonymous',
   };
 }

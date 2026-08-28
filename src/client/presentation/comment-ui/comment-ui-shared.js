@@ -111,21 +111,21 @@ export function getLatestGroupMessage(group) {
 
 /**
  * Derive the last interaction in a thread across all messages and reactions.
- * Returns { timestamp, actorType, lastReactionEmoji }.
- * - actorType is 'agent' if the most recent message/reaction is by the agent,
- *   'human' otherwise. Absent actorType on old records defaults to 'human'.
+ * Returns { timestamp, userId, lastReactionEmoji }.
+ * - userId is the stable identifier of whoever did the most recent
+ *   message or reaction. Empty string for agent messages (no userId).
  * - lastReactionEmoji is the emoji of the most recent reaction, or null.
  */
 export function getLastInteraction(thread) {
   let latestTs = -1;
-  let actorType = 'human';
+  let userId = '';
   let lastReactionEmoji = null;
 
   for (const msg of thread?.messages ?? []) {
     const msgTs = msg?.createdAt ?? 0;
     if (msgTs > latestTs) {
       latestTs = msgTs;
-      actorType = msg?.actorType === 'agent' ? 'agent' : 'human';
+      userId = msg?.userId ?? '';
     }
 
     for (const group of msg?.reactions ?? []) {
@@ -133,14 +133,14 @@ export function getLastInteraction(thread) {
         const reactTs = user?.reactedAt ?? 0;
         if (reactTs > latestTs) {
           latestTs = reactTs;
-          actorType = 'human';
+          userId = user?.userId ?? '';
           lastReactionEmoji = group.emoji ?? null;
         }
       }
     }
   }
 
-  return { timestamp: latestTs, actorType, lastReactionEmoji };
+  return { timestamp: latestTs, userId, lastReactionEmoji };
 }
 
 const REACTION_ACCENT_MAP = {

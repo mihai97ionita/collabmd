@@ -272,6 +272,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
       peerId: '',
       reactions: [],
       userColor: '',
+      userId: '',
       userName: AGENT_USER_NAME,
     };
 

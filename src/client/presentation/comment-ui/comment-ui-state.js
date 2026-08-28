@@ -260,6 +260,7 @@ function closeThreadCard() {
 /** @this {CommentUiStateContext} */
 function getThreadGroups() {
   const groups = new Map();
+  const localUserId = this.session?.getLocalUser?.()?.userId ?? '';
   this.threads.forEach((thread) => {
     const key = getAnchorGroupKey(thread.anchor);
     const existing = groups.get(key);
@@ -271,7 +272,7 @@ function getThreadGroups() {
     const interaction = getLastInteraction(thread);
     groups.set(key, {
       anchor: thread.anchor,
-      isUnread: interaction.actorType === 'agent',
+      isUnread: interaction.userId !== localUserId,
       key,
       lastReactionEmoji: interaction.lastReactionEmoji,
       threads: [thread],

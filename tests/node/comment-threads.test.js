@@ -108,6 +108,7 @@ test('comment thread serialization supports diagram element anchors with a fallb
       peerId: '',
       reactions: [],
       userColor: '',
+      userId: '',
       userName: 'Tester',
     }],
     resolvedAt: null,
