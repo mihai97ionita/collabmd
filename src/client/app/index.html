@@ -229,6 +229,13 @@
               <span class="ui-toolbar-button-label">Relinquish control</span>
             </button>
 
+            <button class="ui-button ui-button--ghost ui-button--compact hidden" id="reviewNotifyPeekBtn" type="button" aria-label="Notify the AI agent (peek)" title="Let the waiting agent peek at the current proposal without editing">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span class="ui-toolbar-button-label">Notify agent</span>
+            </button>
+
             <button class="ui-button ui-button--ghost ui-button--toolbar mobile-view-toggle" id="mobileViewToggle" aria-label="Toggle editor/preview" title="Toggle view">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
@@ -771,6 +778,7 @@
         <p class="tab-lock-copy" id="reviewControlCopy">The live session is closed. The AI agent can now update this proposal. Take control again to re-open the file and review the next iteration.</p>
         <div class="tab-lock-actions">
           <button type="button" class="ui-button ui-button--primary ui-button--lg" id="reviewControlTakeoverBtn">Take control</button>
+          <button type="button" class="ui-button ui-button--secondary ui-button--lg hidden" id="reviewNotifyHandoffBtn" aria-label="Notify the AI agent to take over">Notify Agent</button>
         </div>
       </div>
     </dialog>

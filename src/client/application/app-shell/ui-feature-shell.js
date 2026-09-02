@@ -200,6 +200,14 @@ function bindToolbarEvents() {
     this.handleReviewRelinquishControl?.();
   });
 
+  this.elements.reviewNotifyPeekBtn?.addEventListener('click', () => {
+    void this.handleReviewNotifyPeek?.();
+  });
+
+  this.elements.reviewNotifyHandoffBtn?.addEventListener('click', () => {
+    void this.handleReviewNotifyHandoff?.();
+  });
+
   this.elements.fileHistoryButton?.addEventListener('click', () => {
     const route = this.navigation.getHashRoute();
     if (route.type === 'git-file-preview') {

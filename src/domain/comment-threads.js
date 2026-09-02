@@ -101,6 +101,25 @@ export function normalizeCommentBody(value) {
   return normalized || null;
 }
 
+// Variant of normalizeCommentBody that also reports whether the input exceeded
+// COMMENT_BODY_MAX_LENGTH. The agent reply API uses this so it can surface
+// `truncated: true` in its 200 response; internal Yjs hydration keeps using
+// normalizeCommentBody (silent truncation) because those records come from the
+// browser, which already enforces maxLength on the textarea.
+export function normalizeCommentBodyWithTruncation(value) {
+  const normalizedBeforeSlice = String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .trim();
+  const originalLength = normalizedBeforeSlice.length;
+  const body = normalizedBeforeSlice.slice(0, COMMENT_BODY_MAX_LENGTH);
+  return {
+    body: body || null,
+    truncated: originalLength > COMMENT_BODY_MAX_LENGTH,
+    originalLength,
+    maxLength: COMMENT_BODY_MAX_LENGTH,
+  };
+}
+
 export function normalizeCommentQuote(value) {
   const normalized = String(value ?? '')
     .replace(/\r\n?/g, '\n')

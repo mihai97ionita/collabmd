@@ -1,4 +1,8 @@
-import { createCommentId, normalizeCommentBody, serializeCommentThreads } from '../../../domain/comment-threads.js';
+import {
+  createCommentId,
+  normalizeCommentBodyWithTruncation,
+  serializeCommentThreads,
+} from '../../../domain/comment-threads.js';
 import { moveCommentThreadAnchors, reconcileCommentThreads } from '../../../domain/comment-anchors.js';
 import { serializeReviewToMarkdown } from '../../../domain/review-markdown-serializer.js';
 import { handleApiError } from './http-request-helpers.js';
@@ -28,6 +32,36 @@ function readReviewIdFromPath(pathname) {
   const segment = pathname.slice(prefix.length);
   const safeSegment = segment.split('/')[0];
   return safeSegment || null;
+}
+
+function readWaitReviewId(pathname) {
+  const prefix = '/api/review/';
+  const suffix = '/wait';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+    return null;
+  }
+  const reviewId = pathname.slice(prefix.length, pathname.length - suffix.length);
+  return reviewId && !reviewId.includes('/') ? reviewId : null;
+}
+
+function readNotifyReviewId(pathname) {
+  const prefix = '/api/review/';
+  const suffix = '/notify';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+    return null;
+  }
+  const reviewId = pathname.slice(prefix.length, pathname.length - suffix.length);
+  return reviewId && !reviewId.includes('/') ? reviewId : null;
+}
+
+function readWaitingReviewId(pathname) {
+  const prefix = '/api/review/';
+  const suffix = '/waiting';
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(suffix)) {
+    return null;
+  }
+  const reviewId = pathname.slice(prefix.length, pathname.length - suffix.length);
+  return reviewId && !reviewId.includes('/') ? reviewId : null;
 }
 
 function readReplyTargetFromPath(pathname) {
@@ -78,6 +112,18 @@ function isReviewReplyPath(pathname) {
 
 function isReviewAnchorMovePath(pathname) {
   return readAnchorMoveReviewId(pathname) !== null;
+}
+
+function isReviewWaitPath(pathname) {
+  return readWaitReviewId(pathname) !== null;
+}
+
+function isReviewNotifyPath(pathname) {
+  return readNotifyReviewId(pathname) !== null;
+}
+
+function isReviewWaitingPath(pathname) {
+  return readWaitingReviewId(pathname) !== null;
 }
 
 function hasActiveCollaborationSession(roomRegistry, vaultPath) {
@@ -143,7 +189,6 @@ async function handleReviewCreate(context, req, res) {
     jsonResponse(req, res, 201, {
       ok: true,
       reviewId: result.reviewId,
-      secret: result.secret,
       vaultPath: result.vaultPath,
       url: buildAbsoluteReviewUrl(req, context.basePath, result.vaultPath, context.publicBaseUrl),
     });
@@ -171,12 +216,6 @@ async function handleReviewRead(context, req, res, requestUrl) {
     const meta = await reviewStore.readMeta(reviewId);
     if (!meta) {
       jsonResponse(req, res, 404, { error: 'Review not found' });
-      return true;
-    }
-
-    const providedSecret = requestUrl.searchParams.get('secret') || req.headers['x-review-secret'];
-    if (typeof providedSecret !== 'string' || providedSecret !== meta.secret) {
-      jsonResponse(req, res, 403, { error: 'Invalid review secret' });
       return true;
     }
 
@@ -229,12 +268,6 @@ async function handleReviewUpdate(context, req, res, requestUrl) {
     const meta = await reviewStore.readMeta(reviewId);
     if (!meta) {
       jsonResponse(req, res, 404, { error: 'Review not found' });
-      return true;
-    }
-
-    const providedSecret = requestUrl.searchParams.get('secret') || req.headers['x-review-secret'];
-    if (typeof providedSecret !== 'string' || providedSecret !== meta.secret) {
-      jsonResponse(req, res, 403, { error: 'Invalid review secret' });
       return true;
     }
 
@@ -310,12 +343,6 @@ async function handleReviewAnchorMove(context, req, res, requestUrl) {
       return true;
     }
 
-    const providedSecret = requestUrl.searchParams.get('secret') || req.headers['x-review-secret'];
-    if (typeof providedSecret !== 'string' || providedSecret !== meta.secret) {
-      jsonResponse(req, res, 403, { error: 'Invalid review secret' });
-      return true;
-    }
-
     const reservation = await reserveExternalReviewMutation(context, req, res, meta.vaultPath);
     if (!reservation) {
       return true;
@@ -355,6 +382,189 @@ async function handleReviewAnchorMove(context, req, res, requestUrl) {
   return true;
 }
 
+const REVIEW_WAIT_TIMEOUT_MS = 20 * 60 * 1000;
+const REVIEW_WAIT_REASON_LIVE_SESSION = 'human still owns the live session; PUT will 409';
+
+function resolveWaitTimeoutMs(requestUrl) {
+  if (process.env.COLLABMD_TESTING === '1') {
+    const override = Number(requestUrl.searchParams.get('timeoutMs'));
+    if (Number.isFinite(override) && override > 0) {
+      return override;
+    }
+  }
+  return REVIEW_WAIT_TIMEOUT_MS;
+}
+
+function buildReviewWaitResult(context, meta, notify) {
+  const mode = notify.mode;
+  const liveSession = hasActiveCollaborationSession(context.roomRegistry, meta.vaultPath);
+  const canEdit = mode === 'handoff' && !liveSession;
+  // Distinguish "peek does not grant edit" from "handoff blocked by a live session"
+  // so the agent does not wait for a session to close that does not exist.
+  const reason = canEdit
+    ? null
+    : mode !== 'handoff'
+      ? 'peek mode does not grant edit'
+      : REVIEW_WAIT_REASON_LIVE_SESSION;
+  return {
+    mode,
+    canReply: true,
+    canEdit,
+    reason,
+    since: String(notify.at),
+  };
+}
+
+async function handleReviewWait(context, req, res, requestUrl) {
+  try {
+    const reviewId = readWaitReviewId(requestUrl.pathname);
+    if (!reviewId) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const reviewStore = context.reviewStore;
+    const reviewWaitingState = context.reviewWaitingState;
+    if (!reviewStore || !reviewWaitingState) {
+      jsonResponse(req, res, 503, { error: 'Review wait is not configured' });
+      return true;
+    }
+
+    const meta = await reviewStore.readMeta(reviewId);
+    if (!meta) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const since = requestUrl.searchParams.get('since') || null;
+
+    // Sticky delivery: if a notify fired while the agent was between polls,
+    // consume it immediately and respond without holding the connection.
+    const pending = reviewWaitingState.consumePendingNotify(reviewId, since);
+    if (pending) {
+      jsonResponse(req, res, 200, buildReviewWaitResult(context, meta, pending));
+      return true;
+    }
+
+    reviewWaitingState.markWaiting(reviewId);
+    const { promise, cancel } = reviewWaitingState.registerWaiter(reviewId, since);
+
+    let settled = false;
+    const timeoutMs = resolveWaitTimeoutMs(requestUrl);
+    const timeoutId = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cancel();
+      reviewWaitingState.clearWaiting(reviewId);
+      sendResponse(req, res, { statusCode: 202, body: '', headers: { 'Cache-Control': 'no-store' } });
+    }, timeoutMs);
+
+    req.on('close', () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutId);
+      cancel();
+      // Clear waiting so the /waiting endpoint stops reporting this review.
+      // If other concurrent waiters exist they remain in the array and will
+      // still be resolved by a future postNotify; agentWaiting=false is a
+      // minor inconsistency in that rare multi-waiter edge case.
+      reviewWaitingState.clearWaiting(reviewId);
+    });
+
+    try {
+      const notify = await promise;
+      clearTimeout(timeoutId);
+      if (settled) {
+        return true;
+      }
+      settled = true;
+
+      if (notify) {
+        jsonResponse(req, res, 200, buildReviewWaitResult(context, meta, notify));
+      } else {
+        // Clean clear (e.g. no notify) — respond 202 with an empty body.
+        sendResponse(req, res, { statusCode: 202, body: '', headers: { 'Cache-Control': 'no-store' } });
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (!settled && !res.headersSent) {
+        handleApiError(req, res, error, '[api] Failed to wait for review:', 'Failed to wait for review');
+      }
+    }
+  } catch (error) {
+    handleApiError(req, res, error, '[api] Failed to wait for review:', 'Failed to wait for review');
+  }
+  return true;
+}
+
+async function handleReviewNotify(context, req, res, requestUrl) {
+  try {
+    const reviewId = readNotifyReviewId(requestUrl.pathname);
+    if (!reviewId) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const reviewStore = context.reviewStore;
+    const reviewWaitingState = context.reviewWaitingState;
+    if (!reviewStore || !reviewWaitingState) {
+      jsonResponse(req, res, 503, { error: 'Review notify is not configured' });
+      return true;
+    }
+
+    const meta = await reviewStore.readMeta(reviewId);
+    if (!meta) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
+    const mode = body?.mode;
+    if (mode !== 'peek' && mode !== 'handoff') {
+      jsonResponse(req, res, 422, { error: 'mode must be "peek" or "handoff"' });
+      return true;
+    }
+
+    reviewWaitingState.postNotify(reviewId, mode);
+    jsonResponse(req, res, 200, { ok: true });
+  } catch (error) {
+    handleApiError(req, res, error, '[api] Failed to notify review:', 'Failed to notify review');
+  }
+  return true;
+}
+
+async function handleReviewWaiting(context, req, res, requestUrl) {
+  try {
+    const reviewId = readWaitingReviewId(requestUrl.pathname);
+    if (!reviewId) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    const reviewStore = context.reviewStore;
+    const reviewWaitingState = context.reviewWaitingState;
+    if (!reviewStore || !reviewWaitingState) {
+      jsonResponse(req, res, 503, { error: 'Review waiting is not configured' });
+      return true;
+    }
+
+    const meta = await reviewStore.readMeta(reviewId);
+    if (!meta) {
+      jsonResponse(req, res, 404, { error: 'Review not found' });
+      return true;
+    }
+
+    jsonResponse(req, res, 200, { agentWaiting: reviewWaitingState.isWaiting(reviewId) });
+  } catch (error) {
+    handleApiError(req, res, error, '[api] Failed to read review waiting state:', 'Failed to read review waiting state');
+  }
+  return true;
+}
+
 async function handleReviewReply(context, req, res, requestUrl) {
   try {
     const target = readReplyTargetFromPath(requestUrl.pathname);
@@ -376,22 +586,16 @@ async function handleReviewReply(context, req, res, requestUrl) {
       return true;
     }
 
-    const providedSecret = requestUrl.searchParams.get('secret') || req.headers['x-review-secret'];
-    if (typeof providedSecret !== 'string' || providedSecret !== meta.secret) {
-      jsonResponse(req, res, 403, { error: 'Invalid review secret' });
-      return true;
-    }
-
     const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
-    const normalizedBody = normalizeCommentBody(body?.body);
-    if (!normalizedBody) {
+    const normalization = normalizeCommentBodyWithTruncation(body?.body);
+    if (!normalization.body) {
       jsonResponse(req, res, 422, { error: 'Missing or empty "body" in request body' });
       return true;
     }
 
     const message = {
       actorType: 'agent',
-      body: normalizedBody,
+      body: normalization.body,
       createdAt: Date.now(),
       editedAt: null,
       id: createCommentId('comment'),
@@ -400,6 +604,17 @@ async function handleReviewReply(context, req, res, requestUrl) {
       userColor: '',
       userId: '',
       userName: AGENT_USER_NAME,
+    };
+
+    // Shared 200 payload: includes truncation metadata so the MCP agent can
+    // detect that its reply was silently sliced to COMMENT_BODY_MAX_LENGTH.
+    const successPayload = {
+      ok: true,
+      messageId: message.id,
+      threadId: target.threadId,
+      truncated: normalization.truncated,
+      bodyLength: normalization.body.length,
+      maxLength: normalization.maxLength,
     };
 
     // Route through the live Yjs room when a browser session is open so the
@@ -435,11 +650,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
         return true;
       }
 
-      jsonResponse(req, res, 200, {
-        ok: true,
-        messageId: message.id,
-        threadId: target.threadId,
-      });
+      jsonResponse(req, res, 200, successPayload);
       return true;
     }
 
@@ -469,11 +680,7 @@ async function handleReviewReply(context, req, res, requestUrl) {
       }
       wrote = true;
 
-      jsonResponse(req, res, 200, {
-        ok: true,
-        messageId: message.id,
-        threadId: target.threadId,
-      });
+      jsonResponse(req, res, 200, successPayload);
     } finally {
       await reservation.release({ refreshFromDisk: wrote });
     }
@@ -489,16 +696,20 @@ const ROUTE_TABLE = [
   { method: 'PUT', path: '/api/review/:id', handler: handleReviewUpdate },
   { method: 'POST', path: '/api/review/:id/threads/:threadId/reply', handler: handleReviewReply },
   { method: 'PATCH', path: '/api/review/:id/anchors', handler: handleReviewAnchorMove },
+  { method: 'GET', path: '/api/review/:id/wait', handler: handleReviewWait },
+  { method: 'POST', path: '/api/review/:id/notify', handler: handleReviewNotify },
+  { method: 'GET', path: '/api/review/:id/waiting', handler: handleReviewWaiting },
 ];
 
 export function createReviewApiHandler({
   reviewStore,
   vaultFileStore,
   roomRegistry = null,
+  reviewWaitingState = null,
   basePath = '',
   publicBaseUrl = '',
 } = {}) {
-  const context = { reviewStore, vaultFileStore, roomRegistry, basePath, publicBaseUrl };
+  const context = { reviewStore, vaultFileStore, roomRegistry, reviewWaitingState, basePath, publicBaseUrl };
 
   return async function handleReviewApi(req, res, requestUrl) {
     if (isReviewPostPath(requestUrl.pathname) && req.method === 'POST') {
@@ -509,6 +720,15 @@ export function createReviewApiHandler({
     }
     if (isReviewAnchorMovePath(requestUrl.pathname) && req.method === 'PATCH') {
       return ROUTE_TABLE[4].handler(context, req, res, requestUrl);
+    }
+    if (isReviewWaitPath(requestUrl.pathname) && req.method === 'GET') {
+      return ROUTE_TABLE[5].handler(context, req, res, requestUrl);
+    }
+    if (isReviewNotifyPath(requestUrl.pathname) && req.method === 'POST') {
+      return ROUTE_TABLE[6].handler(context, req, res, requestUrl);
+    }
+    if (isReviewWaitingPath(requestUrl.pathname) && req.method === 'GET') {
+      return ROUTE_TABLE[7].handler(context, req, res, requestUrl);
     }
     if (isReviewGetPath(requestUrl.pathname) && req.method === 'GET') {
       return ROUTE_TABLE[1].handler(context, req, res, requestUrl);

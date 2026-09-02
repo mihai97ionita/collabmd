@@ -37,6 +37,7 @@ import {
 } from '../infrastructure/runtime-config.js';
 import { TabActivityLock } from '../infrastructure/tab-activity-lock.js';
 import { vaultApiClient } from '../infrastructure/vault-api-client.js';
+import { fetchReviewWaiting, postReviewNotify } from '../infrastructure/review-notify-client.js';
 import { WebMcpToolRegistry } from '../infrastructure/webmcp-tool-registry.js';
 import { WorkspaceSyncClient } from '../infrastructure/workspace-sync-client.js';
 import { BacklinksPanel } from '../presentation/backlinks-panel.js';
@@ -128,6 +129,9 @@ export class CollabMdAppShell {
     this.notifications = new BrowserNotificationPort();
     this.gitApiClient = gitApiClient;
     this.vaultApiClient = vaultApiClient;
+    this.reviewNotifyClient = { fetchReviewWaiting, postReviewNotify };
+    this.agentWaiting = false;
+    this.notifyAgentPollTimer = null;
     this._session = null;
     this._hasPromptedForDisplayName = false;
     this._basePreviewRenderTimer = null;
@@ -536,6 +540,9 @@ export class CollabMdAppShell {
         // leftover relinquished state from a prior review file.
         this.isReviewControlRelinquished = false;
         this.hideReviewControlOverlay?.();
+        // Stop the agent-waiting poll while switching files; onUpdateVisibleChrome
+        // restarts it if the new file is also a review file.
+        this.stopNotifyAgentPolling();
       },
       onConnectionChange: (state) => this.handleConnectionChange(state),
       onContentChange: ({ isBase, isHtml, isMermaid, isPlantUml, isStructurizrWorkspace }) => {
@@ -611,8 +618,18 @@ export class CollabMdAppShell {
         this.syncFileHistoryButton({ filePath, mode: 'editor' });
         this.syncReviewFileChangesButton({ filePath, mode: 'editor' });
         this.syncReviewRelinquishButton({ filePath, mode: 'editor' });
+        this.syncNotifyAgentButtons({ filePath, mode: 'editor' });
+        if (this.isTabActive && this.isReviewFilePath(filePath)) {
+          this.startNotifyAgentPolling();
+        } else {
+          this.stopNotifyAgentPolling();
+        }
         if (this.elements.activeFileName) {
           this.elements.activeFileName.textContent = displayName;
+        }
+        // Reflect the current document in the browser tab title.
+        if (displayName) {
+          document.title = displayName;
         }
       },
       onViewModeReset: () => this.workspacePreviewController.resetPreviewMode(),
@@ -652,6 +669,8 @@ export class CollabMdAppShell {
           this.commentUi.setCurrentFile(null, { supported: false });
           this.handleCommentThreadsChange([]);
           this.handleCommentSelectionChange(null);
+          this.stopNotifyAgentPolling();
+          this.syncNotifyAgentButtons({ filePath: null, mode: 'editor' });
         }
       },
       setSession: (value) => {

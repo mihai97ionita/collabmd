@@ -8,6 +8,7 @@ import { createStaticHandler } from './create-static-handler.js';
 import { createStructurizrApiHandler } from './create-structurizr-api-handler.js';
 import { createVaultApiCommandHandler } from './create-vault-api-command-handler.js';
 import { createVaultApiQueryHandler } from './create-vault-api-query-handler.js';
+import { ReviewWaitingStateManager } from '../review-waiting-state.js';
 import { parseJsonBody } from './request-body.js';
 import {
   createRequestUrlWithPathname,
@@ -75,10 +76,12 @@ export function createRequestHandler(
     basePath: config.basePath,
     service: structurizrWorkspaceService,
   });
+  const reviewWaitingState = new ReviewWaitingStateManager();
   const handleReviewApi = createReviewApiHandler({
     basePath: config.basePath,
     publicBaseUrl: config.publicBaseUrl,
     reviewStore,
+    reviewWaitingState,
     roomRegistry,
     vaultFileStore,
   });

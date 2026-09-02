@@ -100,6 +100,8 @@ export function bindAppShellElements(doc = document) {
     tabLockTakeoverButton: doc.getElementById('tabLockTakeoverBtn'),
     tabLockTitle: doc.getElementById('tabLockTitle'),
     reviewRelinquishButton: doc.getElementById('reviewRelinquishBtn'),
+    reviewNotifyPeekBtn: doc.getElementById('reviewNotifyPeekBtn'),
+    reviewNotifyHandoffBtn: doc.getElementById('reviewNotifyHandoffBtn'),
     reviewControlCopy: doc.getElementById('reviewControlCopy'),
     reviewControlOverlay: doc.getElementById('reviewControlOverlay'),
     reviewControlTakeoverButton: doc.getElementById('reviewControlTakeoverBtn'),

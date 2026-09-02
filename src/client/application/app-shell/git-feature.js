@@ -177,6 +177,11 @@ export const gitFeature = {
       this.elements.activeFileName.textContent = title;
     }
 
+    // Keep the browser tab title in sync with the active view.
+    if (title) {
+      document.title = title;
+    }
+
     this.syncFileHistoryButton({ filePath: this.currentFilePath, mode });
     this.syncReviewFileChangesButton({ filePath: this.currentFilePath, mode });
     this.syncReviewRelinquishButton?.({ filePath: this.currentFilePath, mode });
