@@ -47,15 +47,17 @@
 
 .comment-preview-highlight {
   position: absolute;
-  border: 1px solid oklch(from var(--color-comment) l c h / 0.16);
+  border: 2px solid oklch(from var(--color-comment) l c h / 0.28);
   border-radius: var(--radius-sm);
   background: var(--color-comment-soft);
-  opacity: 0.56;
+  opacity: 0.6;
+  pointer-events: auto;
+  cursor: pointer;
   transition: opacity 140ms ease, background-color 140ms ease, border-color 140ms ease;
 }
 
 .comment-preview-highlight.is-passive {
-  opacity: 0.32;
+  opacity: 0.55;
 }
 
 .comment-preview-highlight.is-hovered {

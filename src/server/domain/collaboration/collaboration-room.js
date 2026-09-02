@@ -442,6 +442,19 @@ export class CollaborationRoom {
     this.doc.getText('codemirror').observe((_event, transaction) => {
       markFromTransaction(transaction);
     });
+
+    // Comment-only mutations (add/edit/reply/resolve) don't change the editor
+    // text, so refreshContentDirty() returns false and schedulePersist() is
+    // never called through the text observer. Without this observer, comments
+    // live only in the in-memory Yjs room and are never flushed to the sidecar
+    // that get_review reads — the agent never sees them. Schedule a persist
+    // directly so the debounced flush picks up the new comment state.
+    this.doc.getArray('comments').observeDeep((_events, transaction) => {
+      if (isContentCleanOrigin(transaction?.origin)) {
+        return;
+      }
+      this.schedulePersist();
+    });
   }
 
   resetContentBaseline() {

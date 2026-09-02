@@ -76,6 +76,7 @@ export function bindAppShellElements(doc = document) {
     wrapToggleLabel: doc.getElementById('wrapToggleLabel'),
     vimModeToggleLabel: doc.getElementById('vimModeToggleLabel'),
     activeFileName: doc.getElementById('activeFileName'),
+    copyFilePathButton: doc.getElementById('copyFilePathBtn'),
     sidebarToggle: doc.getElementById('sidebarToggle'),
     sidebarClose: doc.getElementById('sidebarClose'),
     sidebarBackdrop: doc.getElementById('sidebarBackdrop'),

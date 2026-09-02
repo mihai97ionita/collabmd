@@ -185,6 +185,8 @@ export const gitFeature = {
     this.syncFileHistoryButton({ filePath: this.currentFilePath, mode });
     this.syncReviewFileChangesButton({ filePath: this.currentFilePath, mode });
     this.syncReviewRelinquishButton?.({ filePath: this.currentFilePath, mode });
+    // Hide the copy-file-path button in non-editor modes (empty, diff, history).
+    this.syncCopyFilePathButton?.({ filePath: mode === 'editor' ? this.currentFilePath : null });
   },
 
   async showGitDiff({ filePath = null, scope = 'all' } = {}) {

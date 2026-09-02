@@ -208,6 +208,10 @@ function bindToolbarEvents() {
     void this.handleReviewNotifyHandoff?.();
   });
 
+  this.elements.copyFilePathButton?.addEventListener('click', () => {
+    void this.copyCurrentFilePath?.();
+  });
+
   this.elements.fileHistoryButton?.addEventListener('click', () => {
     const route = this.navigation.getHashRoute();
     if (route.type === 'git-file-preview') {

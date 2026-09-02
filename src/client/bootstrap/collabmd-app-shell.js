@@ -631,6 +631,8 @@ export class CollabMdAppShell {
         if (displayName) {
           document.title = displayName;
         }
+        // Show the copy-file-path button when a file is open.
+        this.syncCopyFilePathButton({ filePath });
       },
       onViewModeReset: () => this.workspacePreviewController.resetPreviewMode(),
       renderPresence: () => this.renderPresence(),
@@ -671,6 +673,7 @@ export class CollabMdAppShell {
           this.handleCommentSelectionChange(null);
           this.stopNotifyAgentPolling();
           this.syncNotifyAgentButtons({ filePath: null, mode: 'editor' });
+          this.syncCopyFilePathButton({ filePath: null });
         }
       },
       setSession: (value) => {
