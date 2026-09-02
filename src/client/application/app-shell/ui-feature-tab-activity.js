@@ -52,6 +52,12 @@ function handleTabActivated({ takeover = false } = {}) {
     this.promptForDisplayNameIfNeeded();
   }
 
+  // Re-arm the agent-waiting poll if we are back on a review file.
+  if (this.isReviewFilePath?.(this.currentFilePath)) {
+    this.startNotifyAgentPolling?.();
+  }
+  this.syncNotifyAgentButtons?.({ filePath: this.currentFilePath, mode: 'editor' });
+
   if (takeover) {
     this.toastController.show('This tab is now active');
   }
@@ -68,6 +74,8 @@ async function handleTabBlocked({ reason } = {}) {
 
   this.isTabActive = false;
   void this.webMcpTools?.refresh();
+  this.stopNotifyAgentPolling?.();
+  this.syncNotifyAgentButtons?.({ filePath: this.currentFilePath, mode: 'editor' });
   this.lobby.disconnect();
   this.workspaceSync.disconnect();
   this.globalUsers = [];

@@ -204,6 +204,10 @@ function createPendingFocusTarget(element, draft = null) {
 function renderCard() {
   const root = this.ensureCardRoot();
   this.captureActiveCardDraft();
+  // Preserve the scroll position of the card content across re-renders.
+  // Without this, clicking Reply/Edit recreates the DOM (root.replaceChildren)
+  // and the user loses their scroll position in the thread.
+  const previousScroll = root.querySelector('.comment-card-scroll')?.scrollTop ?? 0;
   root.replaceChildren();
   root.classList.toggle('hidden', !this.activeCard);
   if (!this.activeCard) {
@@ -297,6 +301,12 @@ function renderCard() {
   root.style.visibility = 'hidden';
   card.appendChild(content);
   root.appendChild(card);
+  // Restore the scroll position preserved before the re-render so
+  // reply/edit/reaction toggles don't jump the thread content.
+  const scrollContainer = root.querySelector('.comment-card-scroll');
+  if (scrollContainer) {
+    scrollContainer.scrollTop = previousScroll;
+  }
   this.updateReactionPickerPosition(card);
   this.positionCard(card);
   root.style.visibility = '';

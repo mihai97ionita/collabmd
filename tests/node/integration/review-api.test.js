@@ -70,7 +70,7 @@ async function seedReviewThreads(server, created, threads) {
   return commentPath;
 }
 
-test('POST /api/review creates a vault file and returns a secret-gated URL; GET returns the two-part markdown', async () => {
+test('POST /api/review creates a vault file and returns a capability-bearing URL; GET returns the two-part markdown', async () => {
   const server = await startTestServer();
   try {
     const proposal = [
@@ -93,10 +93,15 @@ test('POST /api/review creates a vault file and returns a secret-gated URL; GET 
     assert.equal(createResponse.statusCode, 201);
     const created = JSON.parse(createResponse.body);
     assert.ok(created.reviewId, 'reviewId must be returned');
-    assert.ok(created.secret, 'secret must be returned');
     assert.ok(created.vaultPath.startsWith('tmp/review/'), 'vaultPath must live under tmp/review');
     assert.ok(created.vaultPath.includes('review-1-'), 'vaultPath must include the title slug');
     assert.ok(created.vaultPath.endsWith('.md'), 'vaultPath must be a markdown file');
+    // The full reviewId (a uuid) is embedded in the filename so the browser can
+    // derive the capability token from the file path.
+    assert.ok(
+      created.vaultPath.endsWith(`-${created.reviewId}.md`),
+      'vaultPath must embed the full reviewId',
+    );
     assert.ok(
       created.url.includes(`#file=${encodeURIComponent(created.vaultPath)}`),
       'url must deep-link into the UI',
@@ -107,7 +112,7 @@ test('POST /api/review creates a vault file and returns a secret-gated URL; GET 
     assert.equal(proposalOnDisk, proposal, 'proposal must be written verbatim into the vault');
 
     const getResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(getResponse.statusCode, 200);
     assert.match(getResponse.headers['content-type'], /text\/markdown/);
@@ -122,26 +127,19 @@ test('POST /api/review creates a vault file and returns a secret-gated URL; GET 
   }
 });
 
-test('GET /api/review/:id rejects an invalid secret with 403', async () => {
+test('GET /api/review/:id returns 404 for an unknown review id', async () => {
   const server = await startTestServer();
   try {
-    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markdown: '# Hello' }),
-    });
-    const created = JSON.parse(createResponse.body);
-
-    const badSecretResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=not-the-secret`,
+    const unknownResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/nonexistent-id`,
     );
-    assert.equal(badSecretResponse.statusCode, 403);
+    assert.equal(unknownResponse.statusCode, 404);
   } finally {
     await server.close();
   }
 });
 
-test('GET /api/review/:id with a valid secret but stored comments weaves them into the appendix', async () => {
+test('GET /api/review/:id with stored comments weaves them into the appendix', async () => {
   const server = await startTestServer();
   try {
     const proposal = '# Plan\n\nDo the thing on line 2.\n';
@@ -182,7 +180,7 @@ test('GET /api/review/:id with a valid secret but stored comments weaves them in
     }), 'utf-8');
 
     const getResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(getResponse.statusCode, 200);
     assert.ok(getResponse.body.includes('### Line 2'), 'appendix must reference the anchored line');
@@ -226,7 +224,7 @@ test('POST /api/review and GET /api/review/:id use publicBaseUrl when configured
     );
 
     const getResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(getResponse.statusCode, 200);
     assert.ok(
@@ -281,7 +279,7 @@ test('PUT /api/review/:id reconciles comment anchors against the new proposal', 
 
     // PUT a new proposal that moves the quoted content to a different line.
     const putResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -305,34 +303,10 @@ test('PUT /api/review/:id reconciles comment anchors against the new proposal', 
 
     // GET should still render the comment under the new line.
     const getResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(getResponse.statusCode, 200);
     assert.ok(getResponse.body.includes('### Line 5'), 'GET must show the re-anchored line');
-  } finally {
-    await server.close();
-  }
-});
-
-test('PUT /api/review/:id rejects an invalid secret with 403', async () => {
-  const server = await startTestServer();
-  try {
-    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markdown: '# Hello' }),
-    });
-    const created = JSON.parse(createResponse.body);
-
-    const putResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=not-the-secret`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markdown: '# Tampered' }),
-      },
-    );
-    assert.equal(putResponse.statusCode, 403);
   } finally {
     await server.close();
   }
@@ -342,7 +316,7 @@ test('PUT /api/review/:id returns 404 for an unknown review id', async () => {
   const server = await startTestServer();
   try {
     const putResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/nonexistent-id?secret=anything`,
+      `${server.appBaseUrl}/api/review/nonexistent-id`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -366,7 +340,7 @@ test('PUT /api/review/:id rejects an empty markdown body with 422', async () => 
     const created = JSON.parse(createResponse.body);
 
     const putResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -423,13 +397,13 @@ test('GET /api/review/:id with resolved=true includes resolved threads, default 
     }), 'utf-8');
 
     const defaultResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(defaultResponse.statusCode, 200);
     assert.ok(!defaultResponse.body.includes('## Review Comments'), 'default GET must exclude resolved threads');
 
     const resolvedResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}&resolved=true`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}?resolved=true`,
     );
     assert.equal(resolvedResponse.statusCode, 200);
     assert.ok(resolvedResponse.body.includes('### Line 2'), 'resolved=true must include the resolved thread heading');
@@ -481,7 +455,7 @@ test('POST /api/review/:id/threads/:threadId/reply appends an Agent reply to the
     }), 'utf-8');
 
     const replyResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-reply-1/reply?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-reply-1/reply`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -495,7 +469,7 @@ test('POST /api/review/:id/threads/:threadId/reply appends an Agent reply to the
     assert.equal(replied.threadId, 'thread-reply-1');
 
     const getResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
     );
     assert.equal(getResponse.statusCode, 200);
     assert.ok(getResponse.body.includes('@Agent'), 'reply author must be Agent');
@@ -505,25 +479,18 @@ test('POST /api/review/:id/threads/:threadId/reply appends an Agent reply to the
   }
 });
 
-test('POST /api/review/:id/threads/:threadId/reply rejects an invalid secret with 403', async () => {
+test('POST /api/review/:id/threads/:threadId/reply returns 404 for an unknown review id', async () => {
   const server = await startTestServer();
   try {
-    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ markdown: '# Hello' }),
-    });
-    const created = JSON.parse(createResponse.body);
-
     const replyResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/any-thread/reply?secret=wrong`,
+      `${server.appBaseUrl}/api/review/nonexistent-id/threads/any-thread/reply`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ body: 'reply' }),
       },
     );
-    assert.equal(replyResponse.statusCode, 403);
+    assert.equal(replyResponse.statusCode, 404);
   } finally {
     await server.close();
   }
@@ -540,7 +507,7 @@ test('POST /api/review/:id/threads/:threadId/reply returns 404 for an unknown th
     const created = JSON.parse(createResponse.body);
 
     const replyResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/nonexistent-thread/reply?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/nonexistent-thread/reply`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -564,7 +531,7 @@ test('POST /api/review/:id/threads/:threadId/reply rejects an empty body with 42
     const created = JSON.parse(createResponse.body);
 
     const replyResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/any-thread/reply?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/any-thread/reply`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -572,6 +539,93 @@ test('POST /api/review/:id/threads/:threadId/reply rejects an empty body with 42
       },
     );
     assert.equal(replyResponse.statusCode, 422);
+  } finally {
+    await server.close();
+  }
+});
+
+test('POST /api/review/:id/threads/:threadId/reply reports truncation when the body exceeds COMMENT_BODY_MAX_LENGTH', async () => {
+  const server = await startTestServer();
+  try {
+    const proposal = '# Plan\n\nDo the thing on line 2.\n';
+    const createResponse = await httpRequest(`${server.appBaseUrl}/api/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown: proposal }),
+    });
+    const created = JSON.parse(createResponse.body);
+
+    const commentPath = join(server.vaultDir, '.collabmd/comments', `${created.vaultPath}.json`);
+    await mkdir(dirname(commentPath), { recursive: true });
+    await writeFile(commentPath, JSON.stringify({
+      version: 1,
+      threads: [{
+        id: 'thread-trunc-1',
+        anchorKind: 'line',
+        anchorStartLine: 2,
+        anchorEndLine: 2,
+        anchorStart: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorEnd: { type: 'relative', tname: 'ytext', item: null, n: null, rel: null },
+        anchorQuote: 'Do the thing on line 2.',
+        createdAt: Date.parse('2026-08-26T14:00:00Z'),
+        createdByName: 'reviewer',
+        createdByColor: '',
+        createdByPeerId: 'peer-1',
+        resolvedAt: null,
+        messages: [{
+          id: 'comment-original',
+          body: 'This is ambiguous.',
+          createdAt: Date.parse('2026-08-26T14:01:00Z'),
+          editedAt: null,
+          userName: 'reviewer',
+          userColor: '',
+          peerId: 'peer-1',
+          reactions: [],
+        }],
+      }],
+    }), 'utf-8');
+
+    // 2001 chars after trim -> truncated to 2000.
+    const longBody = 'a'.repeat(2001);
+    const replyResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-trunc-1/reply`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: longBody }),
+      },
+    );
+    assert.equal(replyResponse.statusCode, 200);
+    const replied = JSON.parse(replyResponse.body);
+    assert.equal(replied.ok, true);
+    assert.equal(replied.threadId, 'thread-trunc-1');
+    assert.equal(replied.truncated, true, 'truncated must be true for over-length body');
+    assert.equal(replied.maxLength, 2000);
+    assert.equal(replied.bodyLength, 2000, 'bodyLength must be the persisted length');
+
+    // A within-limit reply must report truncated:false.
+    const shortReply = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-trunc-1/reply`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: 'OK' }),
+      },
+    );
+    assert.equal(shortReply.statusCode, 200);
+    const shortParsed = JSON.parse(shortReply.body);
+    assert.equal(shortParsed.truncated, false);
+    assert.equal(shortParsed.bodyLength, 2);
+    assert.equal(shortParsed.maxLength, 2000);
+
+    // GET must render the truncated 2000-char body, not the original 2001.
+    const getResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
+    );
+    assert.equal(getResponse.statusCode, 200);
+    assert.ok(getResponse.body.includes('@Agent'), 'reply author must be Agent');
+    assert.ok(getResponse.body.includes('a'.repeat(2000)), 'truncated body must appear');
+    assert.ok(!getResponse.body.includes('a'.repeat(2001)), 'untruncated tail must not appear');
   } finally {
     await server.close();
   }
@@ -639,7 +693,7 @@ test('POST /api/review/:id/threads/:threadId/reply routes through the live room 
 
     // Post the reply via the HTTP API while the session is live.
     const replyResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-live-1/reply?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/threads/thread-live-1/reply`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -716,7 +770,7 @@ test('PATCH /api/review/:id/anchors atomically moves requested text-thread ancho
     const commentPath = await seedReviewThreads(server, created, [target, untouched]);
 
     const patchResponse = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -746,7 +800,7 @@ test('PATCH /api/review/:id/anchors atomically moves requested text-thread ancho
   }
 });
 
-test('PATCH /api/review/:id/anchors maps secret, review, target, and validation failures', async () => {
+test('PATCH /api/review/:id/anchors maps review, target, and validation failures', async () => {
   const server = await startTestServer();
   try {
     const proposal = ['# Plan', 'Open target'].join('\n');
@@ -763,8 +817,8 @@ test('PATCH /api/review/:id/anchors maps secret, review, target, and validation 
     ];
     const commentPath = await seedReviewThreads(server, created, seeded);
     const validMove = { threadId: 'open', startLine: 2, endLine: 2, quote: 'target' };
-    const requestPatch = (reviewId, secret, moves) => httpRequest(
-      `${server.appBaseUrl}/api/review/${reviewId}/anchors?secret=${encodeURIComponent(secret)}`,
+    const requestPatch = (reviewId, moves) => httpRequest(
+      `${server.appBaseUrl}/api/review/${reviewId}/anchors`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -772,9 +826,8 @@ test('PATCH /api/review/:id/anchors maps secret, review, target, and validation 
       },
     );
 
-    assert.equal((await requestPatch(created.reviewId, 'wrong', [validMove])).statusCode, 403);
-    assert.equal((await requestPatch('missing-review', 'anything', [validMove])).statusCode, 404);
-    assert.equal((await requestPatch(created.reviewId, created.secret, [
+    assert.equal((await requestPatch('missing-review', [validMove])).statusCode, 404);
+    assert.equal((await requestPatch(created.reviewId, [
       { ...validMove, threadId: 'missing-thread' },
     ])).statusCode, 404);
 
@@ -786,7 +839,7 @@ test('PATCH /api/review/:id/anchors maps secret, review, target, and validation 
       [{ ...validMove, quote: 'not selected' }],
     ];
     for (const moves of invalidBatches) {
-      assert.equal((await requestPatch(created.reviewId, created.secret, moves)).statusCode, 422);
+      assert.equal((await requestPatch(created.reviewId, moves)).statusCode, 422);
       assert.deepEqual(JSON.parse(await readFile(commentPath, 'utf-8')).threads, seeded);
     }
   } finally {
@@ -809,7 +862,7 @@ test('PATCH /api/review/:id/anchors rejects an active collaboration room with 40
     await waitForCondition(() => server.server.roomRegistry.get(created.vaultPath)?.clients?.size > 0);
 
     const response = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -841,7 +894,7 @@ test('PATCH /api/review/:id/anchors returns 500 without changing proposal or sid
     server.server.vaultFileStore.writeCommentThreads = async () => ({ ok: false, error: persistenceError });
 
     const response = await httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -895,7 +948,7 @@ test('PATCH /api/review/:id/anchors rejects a WebSocket upgrade while its sideca
     };
 
     const patchPending = httpRequest(
-      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors?secret=${encodeURIComponent(created.secret)}`,
+      `${server.appBaseUrl}/api/review/${created.reviewId}/anchors`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

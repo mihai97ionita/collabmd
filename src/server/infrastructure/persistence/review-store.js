@@ -20,8 +20,7 @@ function slugifyTitle(title) {
 
 function buildVaultPath(reviewId, title = null) {
   const slug = slugifyTitle(title);
-  const shortId = reviewId.slice(0, 8);
-  return `${REVIEW_PATH_PREFIX}${slug}-${shortId}${REVIEW_PATH_SUFFIX}`;
+  return `${REVIEW_PATH_PREFIX}${slug}-${reviewId}${REVIEW_PATH_SUFFIX}`;
 }
 
 function resolveReviewRoot(vaultDir) {
@@ -39,7 +38,6 @@ export class ReviewStore {
 
   async create({ markdown, title = null } = {}) {
     const reviewId = randomUUID();
-    const secret = randomUUID();
     const normalizedTitle = typeof title === 'string' && title.trim() ? title.trim() : null;
     const vaultPath = buildVaultPath(reviewId, normalizedTitle);
     const reviewDir = resolveReviewDir(this.vaultDir, reviewId);
@@ -52,7 +50,6 @@ export class ReviewStore {
     const meta = {
       createdAt: Date.now(),
       reviewId,
-      secret,
       title: normalizedTitle,
       vaultPath,
     };
@@ -67,7 +64,7 @@ export class ReviewStore {
       'utf-8',
     );
 
-    return { ok: true, reviewId, secret, vaultPath };
+    return { ok: true, reviewId, vaultPath };
   }
 
   async readMeta(reviewId) {

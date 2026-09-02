@@ -167,4 +167,5 @@
 .tab-lock-actions {
   display: flex;
   justify-content: flex-start;
+  gap: var(--space-2);
 }

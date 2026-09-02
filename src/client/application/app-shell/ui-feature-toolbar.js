@@ -462,10 +462,36 @@ async function copyCurrentLink() {
   }
 }
 
+/** @this {UiToolbarContext} */
+async function copyCurrentFilePath() {
+  const filePath = this.currentFilePath;
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(filePath);
+    this.toastController.show('File path copied');
+  } catch {
+    this.toastController.show('Failed to copy file path');
+  }
+}
+
+/** @this {UiToolbarContext} */
+function syncCopyFilePathButton({ filePath = this.currentFilePath } = {}) {
+  const button = this.elements?.copyFilePathButton;
+  if (!button) {
+    return;
+  }
+
+  button.classList.toggle('hidden', !filePath);
+}
+
 export const uiFeatureToolbarMethods = {
   applyMarkdownToolbarAction,
-  copyCurrentLink,
   closeMarkdownBlockMenu,
+  copyCurrentFilePath,
+  copyCurrentLink,
   getActiveMarkdownBlockAction,
   getMarkdownBlockMenuPopover,
   handleEditorImageInsert,
@@ -480,6 +506,7 @@ export const uiFeatureToolbarMethods = {
   renderMarkdownToolbar,
   runEditorCommand,
   setActiveMarkdownBlockAction,
+  syncCopyFilePathButton,
   syncMarkdownToolbarBlockUi,
   toggleMarkdownBlockMenu,
 };

@@ -164,27 +164,43 @@ a human reviews it in CollabMD's browser UI (zooming diagrams, leaving
 line- and diagram-element-anchored comments), and the agent GETs the
 proposal back as a single markdown payload with comments woven in.
 
-### Review API (secret-gated)
+### Review API
 
-Two HTTP endpoints on the server, wired in
+Five HTTP endpoints on the server, wired in
 `src/server/infrastructure/http/create-review-api-handler.js` and
 dispatched before the generic vault handlers in
 `src/server/infrastructure/http/create-request-handler.js`.
 
+The `reviewId` (a slug uuid) is the single capability token — knowing it
+is all that's needed to access a review. There is no separate secret.
+This is a localhost-only tool; the secret was over-engineering.
+
 - `POST /api/review` — body `{ markdown, title? }` → `201` with
-  `{ ok, reviewId, secret, vaultPath, url }`. The `url` is absolute
-  (`http://localhost:1317/#file=tmp%2Freview%2F<uuid>.md`) so the agent
+  `{ ok, reviewId, vaultPath, url }`. The `url` is absolute
+  (`http://localhost:1317/#file=tmp%2Freview%2F<slug>-<uuid>.md`) so the agent
   can hand it straight to the human.
-- `GET /api/review/<id>?secret=…&resolved=false` → `200 text/markdown`.
+- `GET /api/review/<id>?resolved=false` → `200 text/markdown`.
   Returns the proposal verbatim followed by `---` and a
   `## Review Comments` appendix. The `X-Review-Url` response header
   carries the human-reviewable URL so the agent can read it from headers
-  without parsing the body. Wrong secret → `403`; unknown id → `404`.
+  without parsing the body. Unknown id → `404`.
+- `PUT /api/review/<id>` — body `{ markdown }`. Replaces the proposal,
+  auto-reconciles comment anchors. `409` if a browser session is live;
+  `404` unknown id; `422` empty body.
+- `POST /api/review/<id>/threads/<threadId>/reply` — body `{ body }`.
+  Appends an `Agent` reply to a thread. Routes through the live Yjs room
+  when one is active. `409` live-session conflict; `404` unknown
+  review/thread; `422` empty body. Truncation metadata is reported on the
+  `200` payload.
+- `PATCH /api/review/<id>/anchors` — body `{ moves }`. Atomically moves
+  line/text thread anchors to explicit line ranges. `409` active room;
+  `404` unknown review/thread; `422` invalid batch; `500` persistence
+  failure.
 
 Storage (`src/server/infrastructure/persistence/review-store.js`):
-the proposal is written to `<vault>/tmp/review/<uuid>.md` (a real vault
-file, so the browser opens it natively) and meta
-`{ reviewId, secret, vaultPath, createdAt, title }` to
+the proposal is written to `<vault>/tmp/review/<slug>-<uuid>.md` (a real
+vault file, so the browser opens it natively) and meta
+`{ reviewId, vaultPath, createdAt, title }` to
 `.collabmd/review/<uuid>/meta.json`. Comments persist through the
 existing sidecar store at `.collabmd/comments/tmp/review/<uuid>.md.json`.
 
@@ -279,7 +295,7 @@ always available at `http://localhost:1317`.
 
 - **Plist:** `~/Library/LaunchAgents/com.imihai.collabmd.plist`
 - **Vault:** `~/.collabmd-vault/` (persistent; review docs live under
-  `tmp/review/<uuid>.md`, sidecars under `.collabmd/`)
+  `tmp/review/<slug>-<uuid>.md`, sidecars under `.collabmd/`)
 - **Logs:** `~/Library/Logs/collabmd/{out,err}.log`
 - **Command:** `/opt/homebrew/bin/node
   /Users/imihai/repos/personal/collabmd/bin/collabmd.js --no-tunnel
@@ -308,10 +324,12 @@ agent loop and the CollabMD server live in one place. Each server is a
 self-contained `uv` inline script (no venv needed).
 
 - `mcp/collabmd-review/server.py` — `post_review(markdown, title="")` and
-  `get_review(review_id, secret, include_resolved=false)`. This is the
-  agent-facing surface of the review API: POST a proposal, get back
-  `{ reviewId, secret, url }`; GET the proposal back with the human's
-  comments woven into a `## Review Comments` appendix.
+  `get_review(review_id, include_resolved=false)`. This is the agent-facing
+  surface of the review API: POST a proposal, get back
+  `{ reviewId, url }`; GET the proposal back with the human's comments
+  woven into a `## Review Comments` appendix. The `reviewId` is the single
+  capability token — no separate secret. Also exposes `put_review_md`,
+  `reply_to_comment`, and `reanchor_review_threads`.
 - `mcp/agent-wait/server.py` — `wait(seconds, label="")` and
   `wait_for(condition, params, timeout_s, interval_s=2)`. General-purpose
   block/poll used to wait for the CollabMD server to be ready after a
@@ -335,14 +353,14 @@ The `collabmd-review` server reads `COLLABMD_URL` (default
 ### End-to-end loop (how it is consumed)
 
 ```text
-1. Agent:  POST /api/review  { markdown }   →  { reviewId, secret, url }
+1. Agent:  POST /api/review  { markdown }   →  { reviewId, url }
 2. Human:  open url in browser
            - file opens in preview-only (no editor)
            - zoom / drag-pan the Mermaid diagrams
            - click Comment toggle → click nodes/edges → post comments
            - select text/lines → post line-anchored comments
            - edit any comment in place (Edit button)
-3. Agent:  GET /api/review/<id>?secret=…    →  text/markdown
+3. Agent:  GET /api/review/<id>             →  text/markdown
            proposal verbatim + ## Review Comments appendix
            (line + diagram-element threads, (edited) markers)
 4. Agent:  iterate on the proposal, re-POST under a new uuid
@@ -369,8 +387,8 @@ node --test --test-force-exit tests/node/integration/review-api.test.js
 
 ### Conventions specific to this fork
 
-- Keep the review API secret-gated and local-only. Do not expose the
-  review endpoints on a public host without auth.
+- Keep the review API local-only. The `reviewId` is the single capability
+  token; do not expose the review endpoints on a public host without auth.
 - Do not write review proposals into the user's real vault; they live
   under `<vault>/tmp/review/` which the global gitignore excludes.
 - When changing the serializer, update both the pure tests and the

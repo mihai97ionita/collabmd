@@ -289,6 +289,26 @@ function renderPreviewLayer(groups = this.getThreadGroups()) {
       highlight = document.createElement('div');
       highlight.className = 'comment-preview-highlight';
       highlight.dataset.commentPreviewHighlightKey = key;
+      // Clicking a permanent highlight opens the comment thread group,
+      // so the user can jump directly to the threads without finding the
+      // marker badge. Use origin 'editor' so the card opens at the editor
+      // gutter (left of the editor), not at the mouse/preview position.
+      if (groupKey) {
+        highlight.addEventListener('click', () => {
+          const group = this.getThreadGroups().find(
+            (candidate) => candidate.key === groupKey,
+          );
+          if (!group) {
+            return;
+          }
+          this.setDrawerOpen(true);
+          this.openThreadGroup(group, {
+            anchor: group.anchor,
+            origin: 'editor',
+            sourceRect: this.session?.getCommentAnchorClientRect?.(group.anchor) ?? null,
+          });
+        });
+      }
       this.previewHighlightLayer?.appendChild(highlight);
     }
     if (groupKey) {
