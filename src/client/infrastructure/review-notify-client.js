@@ -23,15 +23,16 @@ export async function fetchReviewWaiting(reviewId) {
 }
 
 /**
- * POST /api/review/<id>/notify with `{ mode }` → `{ ok: boolean }`.
+ * POST /api/review/<id>/notify with `{ mode, canProceed }` → `{ ok: boolean }`.
  *
  * @param {string} reviewId
- * @param {'peek' | 'handoff'} mode
+ * @param {'peek' | 'handoff' | 'approve' | 'deny'} mode
+ * @param {boolean} [canProceed=false] — only meaningful for "approve"
  * @returns {Promise<{ ok: boolean }>}
  */
-export async function postReviewNotify(reviewId, mode) {
+export async function postReviewNotify(reviewId, mode, canProceed = false) {
   const response = await fetch(resolveApiUrl(buildReviewPath(reviewId, '/notify')), {
-    body: JSON.stringify({ mode }),
+    body: JSON.stringify({ mode, canProceed }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
   });

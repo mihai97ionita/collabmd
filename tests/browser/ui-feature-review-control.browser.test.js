@@ -18,6 +18,9 @@ describe('uiFeature review control', () => {
         <div class="tab-lock-actions">
           <button id="reviewControlTakeoverBtn">Take control</button>
           <button id="reviewNotifyHandoffBtn" class="hidden">Notify Agent</button>
+          <button id="reviewApproveBtn" class="hidden">Approve</button>
+          <button id="reviewApproveProceedBtn" class="hidden">Approve & Proceed</button>
+          <button id="reviewDenyBtn" class="hidden">Deny</button>
         </div>
       </dialog>
     `;
@@ -25,6 +28,9 @@ describe('uiFeature review control', () => {
       reviewRelinquishButton: document.getElementById('reviewRelinquishBtn'),
       reviewNotifyPeekBtn: document.getElementById('reviewNotifyPeekBtn'),
       reviewNotifyHandoffBtn: document.getElementById('reviewNotifyHandoffBtn'),
+      reviewApproveBtn: document.getElementById('reviewApproveBtn'),
+      reviewApproveProceedBtn: document.getElementById('reviewApproveProceedBtn'),
+      reviewDenyBtn: document.getElementById('reviewDenyBtn'),
       reviewControlCopy: document.getElementById('reviewControlCopy'),
       reviewControlOverlay: document.getElementById('reviewControlOverlay'),
       reviewControlTakeoverButton: document.getElementById('reviewControlTakeoverBtn'),
@@ -212,6 +218,26 @@ describe('uiFeature review control', () => {
       context.syncNotifyAgentButtons({ mode: 'preview' });
       expect(context.elements.reviewNotifyPeekBtn.classList.contains('hidden')).toBe(true);
     });
+
+    it('shows approve/deny buttons when agentWaiting is true', () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      context.agentWaiting = true;
+      context.syncNotifyAgentButtons({ mode: 'editor' });
+      expect(context.elements.reviewApproveBtn.classList.contains('hidden')).toBe(false);
+      expect(context.elements.reviewApproveProceedBtn.classList.contains('hidden')).toBe(false);
+      expect(context.elements.reviewDenyBtn.classList.contains('hidden')).toBe(false);
+    });
+
+    it('hides approve/deny buttons when agentWaiting is false', () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      context.agentWaiting = false;
+      context.syncNotifyAgentButtons({ mode: 'editor' });
+      expect(context.elements.reviewApproveBtn.classList.contains('hidden')).toBe(true);
+      expect(context.elements.reviewApproveProceedBtn.classList.contains('hidden')).toBe(true);
+      expect(context.elements.reviewDenyBtn.classList.contains('hidden')).toBe(true);
+    });
   });
 
   describe('handleReviewNotifyPeek', () => {
@@ -322,6 +348,124 @@ describe('uiFeature review control', () => {
       await context.handleReviewNotifyHandoff();
       expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledTimes(2);
       expect(context.reviewHandoffNotifySent).toBe(true);
+    });
+  });
+
+  describe('handleReviewApprove', () => {
+    it('calls cleanupSession THEN postReviewNotify with approve, canProceed: false', async () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      const callOrder = [];
+      context.workspaceRouteController.cleanupSession.mockImplementation(() => {
+        callOrder.push('cleanup');
+      });
+      context.reviewNotifyClient.postReviewNotify.mockImplementation(() => {
+        callOrder.push('notify');
+        return Promise.resolve({ ok: true });
+      });
+
+      await context.handleReviewApprove();
+
+      expect(callOrder).toEqual(['cleanup', 'notify']);
+      expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledWith(
+        '12345678-1234-1234-1234-123456789abc',
+        'approve',
+        false,
+      );
+      expect(context.isReviewControlRelinquished).toBe(true);
+      expect(context.elements.reviewControlOverlay.open).toBe(false);
+      expect(context.reviewHandoffNotifySent).toBe(true);
+    });
+
+    it('is a no-op for non-review files', async () => {
+      const context = setup();
+      context.currentFilePath = 'README.md';
+      await context.handleReviewApprove();
+      expect(context.workspaceRouteController.cleanupSession).not.toHaveBeenCalled();
+      expect(context.reviewNotifyClient.postReviewNotify).not.toHaveBeenCalled();
+    });
+
+    it('guards against a double-click firing a second approve notify', async () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      context.reviewNotifyClient.postReviewNotify.mockImplementation(() => {
+        return Promise.resolve({ ok: true });
+      });
+
+      await context.handleReviewApprove();
+      expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledTimes(1);
+
+      // Second click must be a no-op — the flag was set on the first send.
+      await context.handleReviewApprove();
+      expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('handleReviewApproveProceed', () => {
+    it('calls cleanupSession THEN postReviewNotify with approve, canProceed: true', async () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      const callOrder = [];
+      context.workspaceRouteController.cleanupSession.mockImplementation(() => {
+        callOrder.push('cleanup');
+      });
+      context.reviewNotifyClient.postReviewNotify.mockImplementation(() => {
+        callOrder.push('notify');
+        return Promise.resolve({ ok: true });
+      });
+
+      await context.handleReviewApproveProceed();
+
+      expect(callOrder).toEqual(['cleanup', 'notify']);
+      expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledWith(
+        '12345678-1234-1234-1234-123456789abc',
+        'approve',
+        true,
+      );
+      expect(context.isReviewControlRelinquished).toBe(true);
+      expect(context.reviewHandoffNotifySent).toBe(true);
+    });
+
+    it('is a no-op for non-review files', async () => {
+      const context = setup();
+      context.currentFilePath = 'README.md';
+      await context.handleReviewApproveProceed();
+      expect(context.workspaceRouteController.cleanupSession).not.toHaveBeenCalled();
+      expect(context.reviewNotifyClient.postReviewNotify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handleReviewDeny', () => {
+    it('calls cleanupSession THEN postReviewNotify with deny', async () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      const callOrder = [];
+      context.workspaceRouteController.cleanupSession.mockImplementation(() => {
+        callOrder.push('cleanup');
+      });
+      context.reviewNotifyClient.postReviewNotify.mockImplementation(() => {
+        callOrder.push('notify');
+        return Promise.resolve({ ok: true });
+      });
+
+      await context.handleReviewDeny();
+
+      expect(callOrder).toEqual(['cleanup', 'notify']);
+      expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledWith(
+        '12345678-1234-1234-1234-123456789abc',
+        'deny',
+        false,
+      );
+      expect(context.isReviewControlRelinquished).toBe(true);
+      expect(context.reviewHandoffNotifySent).toBe(true);
+    });
+
+    it('is a no-op for non-review files', async () => {
+      const context = setup();
+      context.currentFilePath = 'README.md';
+      await context.handleReviewDeny();
+      expect(context.workspaceRouteController.cleanupSession).not.toHaveBeenCalled();
+      expect(context.reviewNotifyClient.postReviewNotify).not.toHaveBeenCalled();
     });
   });
 

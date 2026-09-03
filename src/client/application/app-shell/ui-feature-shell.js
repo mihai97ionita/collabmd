@@ -208,6 +208,18 @@ function bindToolbarEvents() {
     void this.handleReviewNotifyHandoff?.();
   });
 
+  this.elements.reviewApproveBtn?.addEventListener('click', () => {
+    void this.handleReviewApprove?.();
+  });
+
+  this.elements.reviewApproveProceedBtn?.addEventListener('click', () => {
+    void this.handleReviewApproveProceed?.();
+  });
+
+  this.elements.reviewDenyBtn?.addEventListener('click', () => {
+    void this.handleReviewDeny?.();
+  });
+
   this.elements.copyFilePathButton?.addEventListener('click', () => {
     void this.copyCurrentFilePath?.();
   });

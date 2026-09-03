@@ -36,10 +36,17 @@ Six tools for the human-review loop:
    Move line/text review threads to explicit 1-based line ranges in the current
    proposal. The whole batch is validated before the comment sidecar is updated.
 
-6. wait_for_review(review_id, timeout?, since?, review_url?) -> { ok, mode, canReply, canEdit, reason, since, timedOut }
-   Long-poll until the human signals via the browser UI (peek or handoff).
+6. wait_for_review(review_id, timeout?, since?, review_url?) -> { ok, mode, canReply, canEdit, reason, since, timedOut, reviewConcluded, canProceed }
+   Long-poll until the human signals via the browser UI. Four modes:
+   - "peek"     — human is looking; agent stays review-only.
+   - "handoff"  — human is done; agent may edit the proposal (PUT).
+   - "approve"  — human approved the proposal; terminal.
+   - "deny"     — human denied the proposal; terminal.
    Blocks up to `timeout` (default "20m"). On notify, returns mode/canEdit/
    reason/since with timedOut=false. On timeout, returns timedOut=true.
+   On reviewConcluded=true, stop re-waiting. If canProceed=true, the human
+   approved the proposal as a plan — go execute what was agreed. If
+   canProceed=false, the review is over (approved-plain or denied) — conclude.
    Re-call to wait again; pass the returned `since` to avoid missing notifies
    that fired between calls. Pass `review_url` (from post_review) so the
    macOS notification fired at wait-start opens the review on click.
@@ -394,18 +401,33 @@ async def wait_for_review(review_id: str, timeout: str = "20m", since: str = "",
     """
     Long-poll until the human signals via the CollabMD browser UI.
 
-    Blocks until the human triggers a notify (peek or handoff) from the
-    browser, or until the timeout elapses. The CollabMD server holds the
-    HTTP connection open for up to 20 minutes; this tool sets an httpx
-    timeout slightly above that so it doesn't disconnect prematurely.
+    Blocks until the human triggers a notify from the browser, or until the
+    timeout elapses. The CollabMD server holds the HTTP connection open for up
+    to 20 minutes; this tool sets an httpx timeout slightly above that so it
+    doesn't disconnect prematurely.
+
+    Four notify modes:
+      - "peek"    — human is looking; agent stays review-only.
+      - "handoff" — human is done; agent may edit the proposal (PUT). canEdit
+        is true only for handoff with no live browser session.
+      - "approve" — human approved the proposal; terminal.
+      - "deny"    — human denied the proposal; terminal.
 
     On a notify, returns:
-      { ok, mode, canReply, canEdit, reason, since, timedOut: false }
-    - mode: "peek" (human is looking) or "handoff" (human is done, agent
-      may edit). canEdit is true only for handoff with no live browser
-      session. reason is null when canEdit is true, or a string explaining
-      why the edit would fail (e.g. "human still owns the live session;
-      PUT will 409") when canEdit is false.
+      { ok, mode, canReply, canEdit, reason, since, timedOut,
+        reviewConcluded, canProceed }
+    - mode: one of "peek", "handoff", "approve", "deny".
+    - canEdit: true only for handoff with no live browser session.
+    - reason: null when canEdit is true, or a string explaining why the edit
+      would fail (e.g. "human still owns the live session; PUT will 409") when
+      canEdit is false. For approve/deny: "approved" / "denied".
+    - reviewConcluded: true when mode is "approve" or "deny" (terminal). On
+      reviewConcluded=true, stop re-waiting. If canProceed=true, the human
+      approved the proposal as a plan — go execute what was agreed. If
+      canProceed=false, the review is over (approved-plain or denied) —
+      conclude.
+    - canProceed: true only when mode is "approve" and the human clicked
+      "Approve & Proceed" in the browser.
 
     On timeout (no notify within the window), returns:
       { ok: true, timedOut: true }

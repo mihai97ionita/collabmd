@@ -786,6 +786,14 @@
           <button type="button" class="ui-button ui-button--primary ui-button--lg" id="reviewControlTakeoverBtn">Take control</button>
           <button type="button" class="ui-button ui-button--secondary ui-button--lg hidden" id="reviewNotifyHandoffBtn" aria-label="Notify the AI agent to take over">Notify Agent</button>
         </div>
+        <div class="tab-lock-actions tab-lock-actions--conclude">
+          <textarea class="ui-input comment-card-input review-conclude-reason" id="reviewConcludeReason" rows="2" placeholder="Optional: leave a comment explaining your decision…" aria-label="Optional comment for approve or deny"></textarea>
+          <div class="tab-lock-actions-row">
+            <button type="button" class="ui-button ui-button--secondary ui-button--lg hidden" id="reviewApproveBtn" aria-label="Approve this proposal">Approve</button>
+            <button type="button" class="ui-button ui-button--secondary ui-button--lg hidden" id="reviewApproveProceedBtn" aria-label="Approve and proceed with the plan">Approve &amp; Proceed</button>
+            <button type="button" class="ui-button ui-button--secondary ui-button--lg hidden" id="reviewDenyBtn" aria-label="Deny this proposal">Deny</button>
+          </div>
+        </div>
       </div>
     </dialog>
 
