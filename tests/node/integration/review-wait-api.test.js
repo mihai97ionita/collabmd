@@ -307,3 +307,252 @@ test('GET /api/review/:id/wait passes since token through and does not re-delive
     await server.close();
   }
 });
+
+test('POST /api/review/:id/notify with mode "approve" returns 200 and the wait resolves with reviewConcluded: true, canProceed: false', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    const waitPending = httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/wait?timeoutMs=5000`,
+    );
+    await waitForCondition(async () => {
+      const status = await httpRequest(
+        `${server.appBaseUrl}/api/review/${created.reviewId}/waiting`,
+      );
+      return JSON.parse(status.body).agentWaiting === true;
+    });
+
+    const notifyResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve' }),
+      },
+    );
+    assert.equal(notifyResponse.statusCode, 200);
+
+    const waitResponse = await waitPending;
+    assert.equal(waitResponse.statusCode, 200);
+    const result = JSON.parse(waitResponse.body);
+    assert.equal(result.mode, 'approve');
+    assert.equal(result.reviewConcluded, true);
+    assert.equal(result.canProceed, false);
+    assert.equal(result.canEdit, false, 'approve is terminal — canEdit must be false');
+    assert.equal(result.reason, 'approved');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('POST /api/review/:id/notify with mode "approve" and canProceed: true returns 200 and the wait resolves with canProceed: true', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    const waitPending = httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/wait?timeoutMs=5000`,
+    );
+    await waitForCondition(async () => {
+      const status = await httpRequest(
+        `${server.appBaseUrl}/api/review/${created.reviewId}/waiting`,
+      );
+      return JSON.parse(status.body).agentWaiting === true;
+    });
+
+    const notifyResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve', canProceed: true }),
+      },
+    );
+    assert.equal(notifyResponse.statusCode, 200);
+
+    const waitResponse = await waitPending;
+    assert.equal(waitResponse.statusCode, 200);
+    const result = JSON.parse(waitResponse.body);
+    assert.equal(result.mode, 'approve');
+    assert.equal(result.reviewConcluded, true);
+    assert.equal(result.canProceed, true);
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('POST /api/review/:id/notify with mode "deny" returns 200 and the wait resolves with reviewConcluded: true, canProceed: false', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    const waitPending = httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/wait?timeoutMs=5000`,
+    );
+    await waitForCondition(async () => {
+      const status = await httpRequest(
+        `${server.appBaseUrl}/api/review/${created.reviewId}/waiting`,
+      );
+      return JSON.parse(status.body).agentWaiting === true;
+    });
+
+    const notifyResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'deny' }),
+      },
+    );
+    assert.equal(notifyResponse.statusCode, 200);
+
+    const waitResponse = await waitPending;
+    assert.equal(waitResponse.statusCode, 200);
+    const result = JSON.parse(waitResponse.body);
+    assert.equal(result.mode, 'deny');
+    assert.equal(result.reviewConcluded, true);
+    assert.equal(result.canProceed, false);
+    assert.equal(result.canEdit, false, 'deny is terminal — canEdit must be false');
+    assert.equal(result.reason, 'denied');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('POST /api/review/:id/notify with mode "approve" and no canProceed defaults to canProceed: false', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    const waitPending = httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/wait?timeoutMs=5000`,
+    );
+    await waitForCondition(async () => {
+      const status = await httpRequest(
+        `${server.appBaseUrl}/api/review/${created.reviewId}/waiting`,
+      );
+      return JSON.parse(status.body).agentWaiting === true;
+    });
+
+    // No canProceed field in the body — should default to false.
+    await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve' }),
+      },
+    );
+
+    const waitResponse = await waitPending;
+    const result = JSON.parse(waitResponse.body);
+    assert.equal(result.canProceed, false, 'canProceed must default to false when not provided');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('GET /api/review/:id after approve shows ## Review Status with "Approved"', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve' }),
+      },
+    );
+
+    const readResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
+    );
+    assert.equal(readResponse.statusCode, 200);
+    assert.ok(readResponse.body.includes('## Review Status'), 'status section must be present');
+    assert.ok(readResponse.body.includes('**Approved**'), 'approved label must be present');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('GET /api/review/:id after approve+proceed shows "Approved ... Proceed."', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'approve', canProceed: true }),
+      },
+    );
+
+    const readResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
+    );
+    assert.equal(readResponse.statusCode, 200);
+    assert.ok(readResponse.body.includes('**Approved**'), 'approved label must be present');
+    assert.ok(readResponse.body.includes(' Proceed.'), 'proceed suffix must be present');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('GET /api/review/:id after deny shows "Denied"', async () => {
+  const server = await startTestServer();
+  try {
+    process.env.COLLABMD_TESTING = '1';
+    const created = await createReview(server);
+
+    await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}/notify`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'deny' }),
+      },
+    );
+
+    const readResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
+    );
+    assert.equal(readResponse.statusCode, 200);
+    assert.ok(readResponse.body.includes('## Review Status'), 'status section must be present');
+    assert.ok(readResponse.body.includes('**Denied**'), 'denied label must be present');
+  } finally {
+    delete process.env.COLLABMD_TESTING;
+    await server.close();
+  }
+});
+
+test('GET /api/review/:id without conclusion shows no ## Review Status section', async () => {
+  const server = await startTestServer();
+  try {
+    const created = await createReview(server);
+
+    const readResponse = await httpRequest(
+      `${server.appBaseUrl}/api/review/${created.reviewId}`,
+    );
+    assert.equal(readResponse.statusCode, 200);
+    assert.ok(!readResponse.body.includes('## Review Status'), 'no status section when no notify was posted');
+  } finally {
+    await server.close();
+  }
+});

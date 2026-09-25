@@ -169,3 +169,22 @@
   justify-content: flex-start;
   gap: var(--space-2);
 }
+
+.tab-lock-actions--conclude {
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.tab-lock-actions-row {
+  display: flex;
+  justify-content: flex-start;
+  gap: var(--space-2);
+}
+
+.review-conclude-reason {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  resize: vertical;
+}

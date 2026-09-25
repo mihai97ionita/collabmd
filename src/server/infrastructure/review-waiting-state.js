@@ -26,7 +26,7 @@ export class ReviewWaitingStateManager {
   _ensure(reviewId) {
     let entry = this._state.get(reviewId);
     if (!entry) {
-      entry = { agentWaiting: false, waiters: [], pendingNotify: null };
+      entry = { agentWaiting: false, waiters: [], pendingNotify: null, lastNotify: null };
       this._state.set(reviewId, entry);
     }
     return entry;
@@ -34,7 +34,10 @@ export class ReviewWaitingStateManager {
 
   _maybeCleanup(reviewId) {
     const entry = this._state.get(reviewId);
-    if (entry && !entry.agentWaiting && entry.waiters.length === 0 && !entry.pendingNotify) {
+    // Keep the entry alive while a lastNotify (terminal conclusion) exists
+    // so get_review can render the ## Review Status section even after the
+    // waiting/notify cycle completes and waiters drain.
+    if (entry && !entry.agentWaiting && entry.waiters.length === 0 && !entry.pendingNotify && !entry.lastNotify) {
       this._state.delete(reviewId);
     }
   }
@@ -60,9 +63,9 @@ export class ReviewWaitingStateManager {
   }
 
   // Returns { promise, cancel }. The promise resolves with the pending
-  // notify `{ mode, at }` when a notify arrives, or `null` when the waiter
-  // is cancelled (client disconnect / timeout). If a sticky pending notify
-  // newer than `since` exists, the promise resolves immediately.
+  // notify `{ mode, canProceed, at }` when a notify arrives, or `null` when
+  // the waiter is cancelled (client disconnect / timeout). If a sticky
+  // pending notify newer than `since` exists, the promise resolves immediately.
   registerWaiter(reviewId, since) {
     const entry = this._ensure(reviewId);
     const sinceNum = parseSince(since);
@@ -100,10 +103,12 @@ export class ReviewWaitingStateManager {
 
   // Stores the notify and wakes any current waiters. If no waiter is
   // registered, the notify is kept in the pending slot for sticky delivery
-  // on the next register/consume call.
-  postNotify(reviewId, mode) {
+  // on the next register/consume call. The notify object is also retained
+  // in `lastNotify` so get_review can render a ## Review Status section.
+  postNotify(reviewId, mode, canProceed = false) {
     const entry = this._ensure(reviewId);
-    const notify = { mode, at: Date.now() };
+    const notify = { mode, canProceed: Boolean(canProceed), at: Date.now() };
+    entry.lastNotify = notify;
 
     if (entry.waiters.length > 0) {
       const waiters = entry.waiters.splice(0);
@@ -117,6 +122,15 @@ export class ReviewWaitingStateManager {
     } else {
       entry.pendingNotify = notify;
     }
+  }
+
+  // Returns the last notify `{ mode, canProceed, at }` for a review, or null.
+  // Used by handleReviewRead to render the ## Review Status section. The value
+  // persists in memory for the life of the entry; terminal modes (approve/deny)
+  // are not consumed — get_review should always see the conclusion.
+  getLastNotify(reviewId) {
+    const entry = this._state.get(reviewId);
+    return entry?.lastNotify ?? null;
   }
 
   // Called at the start of a wait to check for a sticky pending notify.

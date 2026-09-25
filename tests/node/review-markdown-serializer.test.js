@@ -208,3 +208,72 @@ test('serializeReviewToMarkdown omits reaction sub-bullets when there are no rea
   assert.ok(!result.includes('  - 👍'), 'no reaction sub-bullet when reactions array is empty');
   assert.ok(!result.includes('❤️'), 'no heart emoji when reactions array is empty');
 });
+
+test('serializeReviewToMarkdown with reviewStatus approve includes "## Review Status" and "Approved"', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [],
+    reviewStatus: { mode: 'approve', canProceed: false, at: Date.parse('2026-09-03T14:22:00Z') },
+  });
+  assert.ok(result.includes('## Review Status'), 'status heading must be present');
+  assert.ok(result.includes('**Approved**'), 'approved label must be present');
+  assert.ok(result.includes('2026-09-03 14:22'), 'date must be formatted from the at timestamp');
+});
+
+test('serializeReviewToMarkdown with reviewStatus deny includes "Denied"', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [],
+    reviewStatus: { mode: 'deny', canProceed: false, at: Date.parse('2026-09-03T14:22:00Z') },
+  });
+  assert.ok(result.includes('## Review Status'), 'status heading must be present');
+  assert.ok(result.includes('**Denied**'), 'denied label must be present');
+});
+
+test('serializeReviewToMarkdown with reviewStatus approve+canProceed includes "Proceed."', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [],
+    reviewStatus: { mode: 'approve', canProceed: true, at: Date.parse('2026-09-03T14:22:00Z') },
+  });
+  assert.ok(result.includes('**Approved**'), 'approved label must be present');
+  assert.ok(result.includes(' Proceed.'), 'proceed suffix must be present when canProceed is true');
+});
+
+test('serializeReviewToMarkdown with reviewStatus approve and no canProceed does not include "Proceed."', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [],
+    reviewStatus: { mode: 'approve', canProceed: false, at: Date.parse('2026-09-03T14:22:00Z') },
+  });
+  assert.ok(!result.includes('Proceed.'), 'no proceed suffix when canProceed is false');
+});
+
+test('serializeReviewToMarkdown without reviewStatus has no "## Review Status" section', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [makeThread()],
+  });
+  assert.ok(!result.includes('## Review Status'), 'no status section when reviewStatus is null');
+});
+
+test('serializeReviewToMarkdown with reviewStatus approve places status before comments section', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [makeThread()],
+    reviewStatus: { mode: 'approve', canProceed: false, at: Date.parse('2026-09-03T14:22:00Z') },
+  });
+  const statusIndex = result.indexOf('## Review Status');
+  const commentsIndex = result.indexOf('## Review Comments');
+  assert.ok(statusIndex > -1 && commentsIndex > -1);
+  assert.ok(statusIndex < commentsIndex, 'status section must come before comments section');
+});
+
+test('serializeReviewToMarkdown with null reviewStatus (explicit) has no status section', () => {
+  const result = serializeReviewToMarkdown({
+    proposalMarkdown: '# Plan\n',
+    threads: [],
+    reviewStatus: null,
+  });
+  assert.ok(!result.includes('## Review Status'), 'no status section when reviewStatus is explicitly null');
+});

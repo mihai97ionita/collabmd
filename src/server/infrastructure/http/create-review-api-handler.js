@@ -228,10 +228,12 @@ async function handleReviewRead(context, req, res, requestUrl) {
 
     const rawThreads = await vaultFileStore.readCommentThreads(meta.vaultPath);
     const serialized = serializeCommentThreads(rawThreads, { includeResolved });
+    const reviewStatus = context.reviewWaitingState?.getLastNotify?.(reviewId) ?? null;
     const markdown = serializeReviewToMarkdown({
       proposalMarkdown,
       threads: serialized,
       includeResolved,
+      reviewStatus,
     });
 
     const reviewUrl = buildAbsoluteReviewUrl(req, context.basePath, meta.vaultPath, context.publicBaseUrl);
@@ -398,20 +400,28 @@ function resolveWaitTimeoutMs(requestUrl) {
 function buildReviewWaitResult(context, meta, notify) {
   const mode = notify.mode;
   const liveSession = hasActiveCollaborationSession(context.roomRegistry, meta.vaultPath);
+  // handoff is the only mode that grants edit rights; approve/deny are terminal
+  // so canEdit is always false for them.
   const canEdit = mode === 'handoff' && !liveSession;
   // Distinguish "peek does not grant edit" from "handoff blocked by a live session"
   // so the agent does not wait for a session to close that does not exist.
   const reason = canEdit
     ? null
-    : mode !== 'handoff'
-      ? 'peek mode does not grant edit'
-      : REVIEW_WAIT_REASON_LIVE_SESSION;
+    : mode === 'approve'
+      ? 'approved'
+      : mode === 'deny'
+        ? 'denied'
+        : mode !== 'handoff'
+          ? 'peek mode does not grant edit'
+          : REVIEW_WAIT_REASON_LIVE_SESSION;
   return {
     mode,
     canReply: true,
     canEdit,
     reason,
     since: String(notify.at),
+    reviewConcluded: mode === 'approve' || mode === 'deny',
+    canProceed: mode === 'approve' && Boolean(notify.canProceed),
   };
 }
 
@@ -524,12 +534,14 @@ async function handleReviewNotify(context, req, res, requestUrl) {
 
     const body = await parseJsonBody(req, REVIEW_REQUEST_LIMIT_BYTES);
     const mode = body?.mode;
-    if (mode !== 'peek' && mode !== 'handoff') {
-      jsonResponse(req, res, 422, { error: 'mode must be "peek" or "handoff"' });
+    if (mode !== 'peek' && mode !== 'handoff' && mode !== 'approve' && mode !== 'deny') {
+      jsonResponse(req, res, 422, { error: 'mode must be "peek", "handoff", "approve", or "deny"' });
       return true;
     }
 
-    reviewWaitingState.postNotify(reviewId, mode);
+    // approve may carry an optional canProceed flag; other modes ignore it.
+    const canProceed = mode === 'approve' ? Boolean(body?.canProceed) : false;
+    reviewWaitingState.postNotify(reviewId, mode, canProceed);
     jsonResponse(req, res, 200, { ok: true });
   } catch (error) {
     handleApiError(req, res, error, '[api] Failed to notify review:', 'Failed to notify review');

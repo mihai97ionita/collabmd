@@ -161,13 +161,14 @@ export class CommentUiController {
     this.handleDocumentPointerDown = (event) => {
       const target = event.target;
 
-      // The Notify Agent buttons (peek/handoff) live in the toolbar, outside
-      // the comment card/drawer. Without this guard, clicking them closes the
-      // open thread card and drawer — the user loses their comment context.
-      // Also guard clicks on permanent preview highlights so their click-to-
-      // open-thread handler fires before pointerdown closes the card/drawer.
+      // The Notify Agent buttons (peek/handoff/approve/deny) live in the
+      // toolbar, outside the comment card/drawer. Without this guard, clicking
+      // them closes the open thread card and drawer — the user loses their
+      // comment context. Also guard clicks on permanent preview highlights so
+      // their click-to-open-thread handler fires before pointerdown closes the
+      // card/drawer.
       if (target instanceof Element && target.closest(
-        '#reviewNotifyPeekBtn, #reviewNotifyHandoffBtn, .comment-preview-highlight',
+        '#reviewNotifyPeekBtn, #reviewNotifyHandoffBtn, #reviewApproveBtn, #reviewApproveProceedBtn, #reviewDenyBtn, #reviewConcludeReason, .comment-preview-highlight',
       )) {
         return;
       }

@@ -16,10 +16,10 @@
  * @property {boolean} [isReviewControlRelinquished]
  * @property {boolean} [agentWaiting]
  * @property {number | null} [notifyAgentPollTimer]
- * @property {{ reviewRelinquishButton?: HTMLElement | null, reviewControlOverlay?: HTMLDialogElement | null, reviewControlTakeoverButton?: HTMLElement | null, reviewControlTitle?: HTMLElement | null, reviewControlCopy?: HTMLElement | null, reviewNotifyPeekBtn?: HTMLElement | null, reviewNotifyHandoffBtn?: HTMLElement | null }} elements
+ * @property {{ reviewRelinquishButton?: HTMLElement | null, reviewControlOverlay?: HTMLDialogElement | null, reviewControlTakeoverButton?: HTMLElement | null, reviewControlTitle?: HTMLElement | null, reviewControlCopy?: HTMLElement | null, reviewNotifyPeekBtn?: HTMLElement | null, reviewNotifyHandoffBtn?: HTMLElement | null, reviewApproveBtn?: HTMLElement | null, reviewApproveProceedBtn?: HTMLElement | null, reviewDenyBtn?: HTMLElement | null }} elements
  * @property {{ cleanupSession(): void, handleHashChange(): Promise<void> }} workspaceRouteController
  * @property {{ show(message: string): void }} toastController
- * @property {{ fetchReviewWaiting(reviewId: string): Promise<{ agentWaiting: boolean }>, postReviewNotify(reviewId: string, mode: 'peek' | 'handoff'): Promise<{ ok: boolean }> }} [reviewNotifyClient]
+ * @property {{ fetchReviewWaiting(reviewId: string): Promise<{ agentWaiting: boolean }>, postReviewNotify(reviewId: string, mode: 'peek' | 'handoff' | 'approve' | 'deny', canProceed?: boolean): Promise<{ ok: boolean }> }} [reviewNotifyClient]
  */
 
 import { extractReviewIdFromPath } from '../../domain/review-paths.js';
@@ -76,6 +76,11 @@ function handleReviewTakeControl() {
   this.hideReviewControlOverlay();
   this.isReviewControlRelinquished = false;
   this.reviewHandoffNotifySent = false;
+  // Clear any stale conclude-reason text from a previous approve/deny.
+  const reasonTextarea = this.elements?.reviewConcludeReason;
+  if (reasonTextarea) {
+    reasonTextarea.value = '';
+  }
   this.syncReviewRelinquishButton({ mode: 'editor' });
   // Re-open the file from the hash route, recreating the collaboration session.
   void this.workspaceRouteController?.handleHashChange?.();
@@ -127,6 +132,9 @@ function syncNotifyAgentButtons({
 } = {}) {
   const peekButton = this.elements?.reviewNotifyPeekBtn;
   const handoffButton = this.elements?.reviewNotifyHandoffBtn;
+  const approveButton = this.elements?.reviewApproveBtn;
+  const approveProceedButton = this.elements?.reviewApproveProceedBtn;
+  const denyButton = this.elements?.reviewDenyBtn;
 
   const shouldShow = Boolean(
     this.isTabActive
@@ -140,6 +148,10 @@ function syncNotifyAgentButtons({
   // when an agent is actually waiting; otherwise hide it even if the overlay
   // were shown, so the human sees no agent-facing action to confirm.
   handoffButton?.classList.toggle('hidden', !shouldShow);
+  // Approve/deny buttons live alongside handoff in the overlay. Same gating.
+  approveButton?.classList.toggle('hidden', !shouldShow);
+  approveProceedButton?.classList.toggle('hidden', !shouldShow);
+  denyButton?.classList.toggle('hidden', !shouldShow);
 }
 
 /**
@@ -169,7 +181,9 @@ async function handleReviewNotifyPeek() {
 }
 
 /**
- * Fires a `handoff` notify. Two-step: FIRST release the live collaboration
+ * Fires a `handoff` notify. Three-step: FIRST post the optional
+ * conclude-reason comment (from the overlay textarea) as a line-1 thread so
+ * the agent reads it via get_review, THEN release the live collaboration
  * session (`cleanupSession`) so the server-side room empties and the agent's
  * PUT will succeed, mark relinquished, THEN POST the notify. The agent wakes
  * with `canEdit: true`.
@@ -196,7 +210,15 @@ async function handleReviewNotifyHandoff() {
     return;
   }
 
-  // Step 1: release the live session so the agent's PUT is unblocked.
+  // Step 1: post the optional conclude-reason comment (from the textarea in
+  // the overlay) as a file-level thread anchored to line 1, BEFORE the live
+  // session is torn down. This must happen while the Yjs session is still
+  // alive so canWrite() is true and the comment flushes to the sidecar on
+  // cleanup — otherwise the handoff comment is silently dropped and the
+  // agent's get_review never sees it. Mirrors approve/deny.
+  await postConcludeReasonComment.call(this);
+
+  // Step 2: release the live session so the agent's PUT is unblocked.
   // (If the user came through Relinquish Control first, cleanupSession was
   // already called and isReviewControlRelinquished is already true — that's
   // fine, cleanupSession is idempotent and the flag is already set.)
@@ -205,7 +227,7 @@ async function handleReviewNotifyHandoff() {
   this.syncReviewRelinquishButton({ filePath: this.currentFilePath, mode: 'editor' });
   this.showReviewControlOverlay();
 
-  // Step 2: tell the agent it can take over.
+  // Step 3: tell the agent it can take over.
   this.reviewHandoffNotifySent = true;
   try {
     await this.reviewNotifyClient?.postReviewNotify(reviewId, 'handoff');
@@ -222,6 +244,171 @@ async function handleReviewNotifyHandoff() {
   // agent-owned session does not offer notify actions.
   this.stopNotifyAgentPolling?.();
   this.syncNotifyAgentButtons({ filePath: this.currentFilePath, mode: 'editor' });
+}
+
+/**
+ * Posts the optional conclude-reason comment (from the textarea in the overlay)
+ * as a file-level thread anchored to line 1, BEFORE the notify fires. This
+ * gives the human a way to explain the approve/deny decision — the agent
+ * reads it via get_review. Best-effort: a comment failure does not block
+ * the notify.
+ *
+ * @this {UiReviewControlContext}
+ */
+async function postConcludeReasonComment() {
+  const textarea = this.elements?.reviewConcludeReason;
+  if (!textarea) {
+    return;
+  }
+  const body = textarea.value.trim();
+  if (!body) {
+    return;
+  }
+  textarea.value = '';
+  try {
+    this.createCommentThread?.({
+      anchor: {
+        anchorKind: 'line',
+        anchorStartLine: 1,
+        anchorEndLine: 1,
+        anchorQuote: '',
+      },
+      body,
+    });
+  } catch (error) {
+    console.error('[review-control] conclude comment failed:', error);
+  }
+}
+
+/**
+ * Fires an `approve` notify (terminal). Like handoff: FIRST release the live
+ * collaboration session (`cleanupSession`) so the server-side room empties,
+ * mark relinquished, show the overlay, THEN POST the notify. The agent wakes
+ * with `reviewConcluded: true, canProceed: false`.
+ *
+ * @this {UiReviewControlContext}
+ */
+async function handleReviewApprove() {
+  if (!this.isTabActive) {
+    return;
+  }
+
+  if (this.reviewHandoffNotifySent) {
+    return;
+  }
+
+  const reviewId = extractReviewIdFromPath(this.currentFilePath);
+  if (!reviewId) {
+    return;
+  }
+
+  await postConcludeReasonComment.call(this);
+
+  this.workspaceRouteController?.cleanupSession?.();
+  this.isReviewControlRelinquished = true;
+  this.syncReviewRelinquishButton({ filePath: this.currentFilePath, mode: 'editor' });
+  this.showReviewControlOverlay();
+
+  this.reviewHandoffNotifySent = true;
+  try {
+    await this.reviewNotifyClient?.postReviewNotify(reviewId, 'approve', false);
+    this.toastController?.show('Notified the agent — approved. The review is concluded.');
+  } catch (error) {
+    this.reviewHandoffNotifySent = false;
+    console.error('[review-control] approve notify failed:', error);
+    this.toastController?.show('Failed to notify the agent');
+    return;
+  }
+
+  this.stopNotifyAgentPolling?.();
+  this.syncNotifyAgentButtons({ filePath: this.currentFilePath, mode: 'editor' });
+  this.hideReviewControlOverlay();
+}
+
+/**
+ * Same as approve but with `canProceed: true` — the human approved the
+ * proposal as a plan and wants the agent to execute it.
+ *
+ * @this {UiReviewControlContext}
+ */
+async function handleReviewApproveProceed() {
+  if (!this.isTabActive) {
+    return;
+  }
+
+  if (this.reviewHandoffNotifySent) {
+    return;
+  }
+
+  const reviewId = extractReviewIdFromPath(this.currentFilePath);
+  if (!reviewId) {
+    return;
+  }
+
+  await postConcludeReasonComment.call(this);
+
+  this.workspaceRouteController?.cleanupSession?.();
+  this.isReviewControlRelinquished = true;
+  this.syncReviewRelinquishButton({ filePath: this.currentFilePath, mode: 'editor' });
+  this.showReviewControlOverlay();
+
+  this.reviewHandoffNotifySent = true;
+  try {
+    await this.reviewNotifyClient?.postReviewNotify(reviewId, 'approve', true);
+    this.toastController?.show('Notified the agent — approved & proceed. The review is concluded.');
+  } catch (error) {
+    this.reviewHandoffNotifySent = false;
+    console.error('[review-control] approve+proceed notify failed:', error);
+    this.toastController?.show('Failed to notify the agent');
+    return;
+  }
+
+  this.stopNotifyAgentPolling?.();
+  this.syncNotifyAgentButtons({ filePath: this.currentFilePath, mode: 'editor' });
+  this.hideReviewControlOverlay();
+}
+
+/**
+ * Fires a `deny` notify (terminal). Same cleanup-then-notify pattern as
+ * approve. The agent wakes with `reviewConcluded: true, canProceed: false`.
+ *
+ * @this {UiReviewControlContext}
+ */
+async function handleReviewDeny() {
+  if (!this.isTabActive) {
+    return;
+  }
+
+  if (this.reviewHandoffNotifySent) {
+    return;
+  }
+
+  const reviewId = extractReviewIdFromPath(this.currentFilePath);
+  if (!reviewId) {
+    return;
+  }
+
+  await postConcludeReasonComment.call(this);
+
+  this.workspaceRouteController?.cleanupSession?.();
+  this.isReviewControlRelinquished = true;
+  this.syncReviewRelinquishButton({ filePath: this.currentFilePath, mode: 'editor' });
+  this.showReviewControlOverlay();
+
+  this.reviewHandoffNotifySent = true;
+  try {
+    await this.reviewNotifyClient?.postReviewNotify(reviewId, 'deny', false);
+    this.toastController?.show('Notified the agent — denied. The review is concluded.');
+  } catch (error) {
+    this.reviewHandoffNotifySent = false;
+    console.error('[review-control] deny notify failed:', error);
+    this.toastController?.show('Failed to notify the agent');
+    return;
+  }
+
+  this.stopNotifyAgentPolling?.();
+  this.syncNotifyAgentButtons({ filePath: this.currentFilePath, mode: 'editor' });
+  this.hideReviewControlOverlay();
 }
 
 /**
@@ -286,6 +473,9 @@ function stopNotifyAgentPolling() {
 }
 
 export const uiFeatureReviewControlMethods = {
+  handleReviewApprove,
+  handleReviewApproveProceed,
+  handleReviewDeny,
   handleReviewNotifyHandoff,
   handleReviewNotifyPeek,
   handleReviewRelinquishControl,

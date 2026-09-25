@@ -5,6 +5,7 @@ import {
 } from './comment-threads.js';
 
 const REVIEW_HEADING = '## Review Comments';
+const REVIEW_STATUS_HEADING = '## Review Status';
 const REVIEW_SEPARATOR = '\n\n---\n\n';
 const THREAD_HEADING_PREFIX = '### ';
 const NO_COMMENTS_SENTINEL = '_No comments yet._';
@@ -114,19 +115,44 @@ function sortThreads(threads) {
   });
 }
 
+function renderReviewStatus(reviewStatus) {
+  if (!reviewStatus || (reviewStatus.mode !== 'approve' && reviewStatus.mode !== 'deny')) {
+    return '';
+  }
+  const label = reviewStatus.mode === 'approve' ? 'Approved' : 'Denied';
+  const date = formatCommentDate(reviewStatus.at);
+  const dateSuffix = date ? ` on ${date}` : '';
+  const proceedSuffix = reviewStatus.mode === 'approve' && reviewStatus.canProceed ? ' Proceed.' : '';
+  return `${REVIEW_STATUS_HEADING}\n\n**${label}**${dateSuffix}.${proceedSuffix}`;
+}
+
 export function serializeReviewToMarkdown({
   proposalMarkdown,
   threads = [],
   includeResolved = false,
+  reviewStatus = null,
 } = {}) {
   const proposal = typeof proposalMarkdown === 'string' ? proposalMarkdown : '';
+  const statusSection = renderReviewStatus(reviewStatus);
   const filtered = filterThreads(threads, includeResolved);
-  if (filtered.length === 0) {
+
+  // No comments and no conclusion — just the proposal.
+  if (filtered.length === 0 && !statusSection) {
     return proposal;
+  }
+
+  // Conclusion but no comments — status section only.
+  if (filtered.length === 0 && statusSection) {
+    return `${proposal}${REVIEW_SEPARATOR}${statusSection}\n`;
   }
 
   const sorted = sortThreads(filtered);
   const renderedThreads = sorted.map(renderThread).join('\n\n');
+  // When a conclusion exists, the status section goes first, separated from the
+  // comments by the horizontal rule.
+  if (statusSection) {
+    return `${proposal}${REVIEW_SEPARATOR}${statusSection}${REVIEW_SEPARATOR}${REVIEW_HEADING}\n\n${renderedThreads}\n`;
+  }
   return `${proposal}${REVIEW_SEPARATOR}${REVIEW_HEADING}\n\n${renderedThreads}\n`;
 }
 
