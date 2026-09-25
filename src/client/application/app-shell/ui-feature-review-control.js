@@ -181,7 +181,9 @@ async function handleReviewNotifyPeek() {
 }
 
 /**
- * Fires a `handoff` notify. Two-step: FIRST release the live collaboration
+ * Fires a `handoff` notify. Three-step: FIRST post the optional
+ * conclude-reason comment (from the overlay textarea) as a line-1 thread so
+ * the agent reads it via get_review, THEN release the live collaboration
  * session (`cleanupSession`) so the server-side room empties and the agent's
  * PUT will succeed, mark relinquished, THEN POST the notify. The agent wakes
  * with `canEdit: true`.
@@ -208,7 +210,15 @@ async function handleReviewNotifyHandoff() {
     return;
   }
 
-  // Step 1: release the live session so the agent's PUT is unblocked.
+  // Step 1: post the optional conclude-reason comment (from the textarea in
+  // the overlay) as a file-level thread anchored to line 1, BEFORE the live
+  // session is torn down. This must happen while the Yjs session is still
+  // alive so canWrite() is true and the comment flushes to the sidecar on
+  // cleanup — otherwise the handoff comment is silently dropped and the
+  // agent's get_review never sees it. Mirrors approve/deny.
+  await postConcludeReasonComment.call(this);
+
+  // Step 2: release the live session so the agent's PUT is unblocked.
   // (If the user came through Relinquish Control first, cleanupSession was
   // already called and isReviewControlRelinquished is already true — that's
   // fine, cleanupSession is idempotent and the flag is already set.)
@@ -217,7 +227,7 @@ async function handleReviewNotifyHandoff() {
   this.syncReviewRelinquishButton({ filePath: this.currentFilePath, mode: 'editor' });
   this.showReviewControlOverlay();
 
-  // Step 2: tell the agent it can take over.
+  // Step 3: tell the agent it can take over.
   this.reviewHandoffNotifySent = true;
   try {
     await this.reviewNotifyClient?.postReviewNotify(reviewId, 'handoff');

@@ -349,6 +349,46 @@ describe('uiFeature review control', () => {
       expect(context.reviewNotifyClient.postReviewNotify).toHaveBeenCalledTimes(2);
       expect(context.reviewHandoffNotifySent).toBe(true);
     });
+
+    it('posts the conclude-reason textarea comment BEFORE cleanupSession (regression: handoff dropped the comment)', async () => {
+      const context = setup();
+      context.currentFilePath = 'tmp/review/proposal-12345678-1234-1234-1234-123456789abc.md';
+      const textarea = document.createElement('textarea');
+      textarea.id = 'reviewConcludeReason';
+      textarea.value = 'Handing off — please tighten the security section.';
+      document.body.appendChild(textarea);
+      context.elements.reviewConcludeReason = textarea;
+      context.createCommentThread = vi.fn();
+
+      const callOrder = [];
+      context.createCommentThread.mockImplementation(() => {
+        callOrder.push('concludeComment');
+        return 'thread-1';
+      });
+      context.workspaceRouteController.cleanupSession.mockImplementation(() => {
+        callOrder.push('cleanup');
+      });
+      context.reviewNotifyClient.postReviewNotify.mockImplementation(() => {
+        callOrder.push('notify');
+        return Promise.resolve({ ok: true });
+      });
+
+      await context.handleReviewNotifyHandoff();
+
+      // The comment MUST be posted before the session is torn down, otherwise
+      // it never reaches the Yjs doc / sidecar and get_review can't see it.
+      expect(callOrder).toEqual(['concludeComment', 'cleanup', 'notify']);
+      expect(context.createCommentThread).toHaveBeenCalledWith({
+        anchor: {
+          anchorKind: 'line',
+          anchorStartLine: 1,
+          anchorEndLine: 1,
+          anchorQuote: '',
+        },
+        body: 'Handing off — please tighten the security section.',
+      });
+      expect(textarea.value).toBe(''); // cleared after posting
+    });
   });
 
   describe('handleReviewApprove', () => {
